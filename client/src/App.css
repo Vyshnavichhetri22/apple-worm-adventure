@@ -1,0 +1,1098 @@
+/**
+ * @file App.css
+ * @description Layout and component styling for Navbar, Auth, Dashboard,
+ * Level Selection grid, Modal, and Level Ready preview screens.
+ * Preserves all Milestone 1 styles and seamlessly integrates Milestone 2 rules.
+ */
+
+/* Shell Container */
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.main-viewport {
+  flex: 1;
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2rem 1.5rem;
+}
+
+/* ==========================================================================
+   Milestone 1: Navbar Component
+   ========================================================================== */
+.navbar {
+  background-color: var(--bg-surface);
+  border-bottom: 1px solid var(--border-color);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  backdrop-filter: blur(8px);
+}
+
+.navbar-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0.75rem 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+}
+
+.navbar-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.brand-worm-icon {
+  font-size: 1.5rem;
+}
+
+.brand-title {
+  font-size: 1.15rem;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+  color: var(--text-accent);
+}
+
+.navbar-nav {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.nav-btn {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  font-weight: 600;
+  padding: 0.5rem 0.85rem;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.nav-btn:hover {
+  color: var(--text-primary);
+  background-color: var(--bg-surface-elevated);
+}
+
+.nav-btn.active {
+  color: #ffffff;
+  background-color: var(--primary-green);
+}
+
+.nav-btn.admin-btn {
+  color: #e2e8f0;
+  border: 1px dashed var(--border-color);
+}
+
+.navbar-user {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.coin-badge {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  background-color: var(--bg-input);
+  border: 1px solid var(--coin-gold-dark);
+  padding: 0.35rem 0.75rem;
+  border-radius: var(--radius-full);
+}
+
+.coin-icon {
+  font-size: 1rem;
+}
+
+.coin-amount {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--coin-gold);
+}
+
+.user-profile {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.user-name {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.admin-tag {
+  background-color: var(--apple-red-dark);
+  color: #ffffff;
+  font-size: 0.65rem;
+  font-weight: 800;
+  padding: 0.1rem 0.35rem;
+  border-radius: var(--radius-sm);
+}
+
+.logout-btn {
+  padding: 0.4rem 0.85rem;
+  font-size: 0.85rem;
+}
+
+/* ==========================================================================
+   Milestone 1: Auth Screen
+   ========================================================================== */
+.auth-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 1.5rem;
+  background: radial-gradient(circle at center, #1b281f 0%, var(--bg-app) 70%);
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 440px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: 2.5rem 2rem;
+  box-shadow: var(--shadow-lg);
+  text-align: center;
+}
+
+.auth-logo-badge {
+  font-size: 2.2rem;
+  margin-bottom: 0.5rem;
+}
+
+.auth-title {
+  font-size: 1.6rem;
+  font-weight: 800;
+  margin-bottom: 0.35rem;
+  color: var(--text-primary);
+}
+
+.auth-subtitle {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  margin-bottom: 1.5rem;
+}
+
+.auth-tabs {
+  display: flex;
+  background-color: var(--bg-input);
+  border-radius: var(--radius-md);
+  padding: 0.3rem;
+  margin-bottom: 1.5rem;
+  border: 1px solid var(--border-color);
+}
+
+.auth-tab {
+  flex: 1;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-weight: 600;
+  font-size: 0.9rem;
+  padding: 0.55rem;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.auth-tab.active {
+  background-color: var(--bg-surface-elevated);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-sm);
+}
+
+.submit-btn {
+  margin-top: 0.75rem;
+  padding: 0.85rem;
+  font-size: 1rem;
+}
+
+.auth-footer {
+  margin-top: 1.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--border-color);
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+/* ==========================================================================
+   Milestone 1: Home Screen Dashboard
+   ========================================================================== */
+.home-container {
+  display: flex;
+  flex-direction: column;
+  gap: 2.5rem;
+}
+
+.hero-banner {
+  background: linear-gradient(135deg, var(--bg-surface) 0%, #152219 100%);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: 3rem 2.5rem;
+  box-shadow: var(--shadow-md);
+}
+
+.hero-content {
+  max-width: 650px;
+}
+
+.hero-badge {
+  display: inline-block;
+  background-color: rgba(76, 175, 80, 0.15);
+  color: var(--primary-green-light);
+  border: 1px solid rgba(76, 175, 80, 0.3);
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 0.25rem 0.65rem;
+  border-radius: var(--radius-full);
+  margin-bottom: 0.75rem;
+  text-transform: uppercase;
+}
+
+.hero-title {
+  font-size: 2.4rem;
+  font-weight: 800;
+  margin-bottom: 0.75rem;
+  letter-spacing: -0.5px;
+}
+
+.highlight-text {
+  color: var(--primary-green-light);
+}
+
+.hero-description {
+  font-size: 1.05rem;
+  color: var(--text-secondary);
+  margin-bottom: 1.75rem;
+  line-height: 1.6;
+}
+
+.hero-actions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+/* Stats Section */
+.section-title {
+  font-size: 1.35rem;
+  font-weight: 700;
+  margin-bottom: 1.2rem;
+  color: var(--text-primary);
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+}
+
+.stat-card {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 1.25rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.stat-icon-wrapper {
+  font-size: 1.75rem;
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--bg-surface-elevated);
+}
+
+.stat-details {
+  display: flex;
+  flex-direction: column;
+}
+
+.stat-value {
+  font-size: 1.4rem;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.stat-label {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+/* Hub Cards Grid */
+.hubs-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1.25rem;
+}
+
+.hub-card {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: 1.5rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  flex-direction: column;
+}
+
+.hub-card:hover {
+  transform: translateY(-3px);
+  border-color: var(--primary-green-light);
+  box-shadow: var(--shadow-md);
+}
+
+.hub-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.hub-icon {
+  font-size: 1.8rem;
+}
+
+.hub-card h3 {
+  font-size: 1.15rem;
+  margin-bottom: 0.5rem;
+}
+
+.hub-card p {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  margin-bottom: 1.25rem;
+  flex: 1;
+}
+
+.hub-link {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--primary-green-light);
+}
+
+/* Guide Card */
+.guide-card {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: 2rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1.5rem;
+}
+
+.guide-step {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.step-num {
+  width: 28px;
+  height: 28px;
+  background-color: var(--primary-green);
+  color: #fff;
+  border-radius: var(--radius-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+
+.guide-step h4 {
+  font-size: 1rem;
+}
+
+.guide-step p {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+/* ==========================================================================
+   Milestone 1: Splash Screen & Placeholders
+   ========================================================================== */
+.splash-screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--bg-app);
+}
+
+.splash-card {
+  text-align: center;
+  max-width: 320px;
+}
+
+.splash-worm-animation {
+  font-size: 3.5rem;
+  animation: pulse 1.5s infinite ease-in-out;
+}
+
+.splash-title {
+  font-size: 1.5rem;
+  margin-top: 0.75rem;
+}
+
+.splash-subtitle {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  margin-bottom: 1.5rem;
+}
+
+.loading-bar {
+  width: 100%;
+  height: 6px;
+  background-color: var(--bg-surface-elevated);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+}
+
+.loading-fill {
+  width: 50%;
+  height: 100%;
+  background-color: var(--primary-green-light);
+  border-radius: var(--radius-full);
+  animation: loadingSlide 1.2s infinite ease-in-out;
+}
+
+@keyframes loadingSlide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(200%); }
+}
+
+@keyframes pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.15); }
+}
+
+.placeholder-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 60vh;
+}
+
+.placeholder-card {
+  background-color: var(--bg-surface);
+  border: 1px dashed var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: 3rem 2rem;
+  max-width: 500px;
+  text-align: center;
+}
+
+.placeholder-icon {
+  font-size: 3rem;
+  margin-bottom: 1rem;
+}
+
+.placeholder-card h2 {
+  font-size: 1.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.milestone-badge {
+  display: inline-block;
+  background-color: rgba(251, 192, 45, 0.15);
+  color: var(--coin-gold);
+  border: 1px solid rgba(251, 192, 45, 0.3);
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 0.25rem 0.65rem;
+  border-radius: var(--radius-full);
+  margin-bottom: 1rem;
+}
+
+.placeholder-card p {
+  color: var(--text-secondary);
+  margin-bottom: 1.5rem;
+  line-height: 1.5;
+}
+
+/* ==========================================================================
+   Milestone 2: Level Selection Screen & Cards
+   ========================================================================== */
+.levels-container {
+  display: flex;
+  flex-direction: column;
+  gap: 1.75rem;
+}
+
+.levels-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.back-btn {
+  margin-bottom: 0.75rem;
+  padding: 0.45rem 0.85rem;
+  font-size: 0.85rem;
+}
+
+.levels-title {
+  font-size: 2.2rem;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+}
+
+.levels-subtitle {
+  color: var(--text-secondary);
+  font-size: 1rem;
+  margin-top: 0.25rem;
+}
+
+.levels-progression-card {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  padding: 1rem 1.5rem;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.prog-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.prog-val {
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.prog-lbl {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+}
+
+.prog-divider {
+  width: 1px;
+  height: 28px;
+  background-color: var(--border-color);
+}
+
+.gold-text {
+  color: var(--coin-gold);
+}
+
+.green-text {
+  color: var(--primary-green-light);
+}
+
+/* Filter Bar */
+.difficulty-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  overflow-x: auto;
+  padding-bottom: 0.25rem;
+}
+
+.filter-chip {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  font-weight: 600;
+  padding: 0.5rem 1rem;
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.filter-chip:hover {
+  background-color: var(--bg-surface-elevated);
+  color: var(--text-primary);
+}
+
+.filter-chip.active {
+  background-color: var(--primary-green);
+  color: #ffffff;
+  border-color: var(--primary-green-light);
+  box-shadow: var(--shadow-sm);
+}
+
+/* Level Grid */
+.levels-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 1.2rem;
+}
+
+/* Level Card */
+.level-card {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 140px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.level-card.unlocked:hover {
+  transform: translateY(-4px);
+  border-color: var(--primary-green-light);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.4);
+}
+
+.level-card.completed {
+  border-color: rgba(251, 192, 45, 0.35);
+  background: linear-gradient(180deg, var(--bg-surface) 0%, rgba(251, 192, 45, 0.04) 100%);
+}
+
+.level-card.locked {
+  opacity: 0.45;
+  cursor: not-allowed;
+  filter: grayscale(0.5);
+  background-color: var(--bg-app);
+}
+
+.level-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.level-num {
+  font-size: 1.15rem;
+  font-weight: 800;
+}
+
+.level-card-body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.75rem 0;
+}
+
+.completion-star-row {
+  display: flex;
+  gap: 0.25rem;
+  font-size: 1.3rem;
+}
+
+.star-icon.filled {
+  color: var(--coin-gold);
+}
+
+.star-icon.empty {
+  color: var(--text-muted);
+}
+
+.unlocked-icon-wrapper {
+  width: 38px;
+  height: 38px;
+  border-radius: var(--radius-full);
+  background-color: rgba(76, 175, 80, 0.15);
+  color: var(--primary-green-light);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+}
+
+.locked-icon-wrapper {
+  font-size: 1.4rem;
+  color: var(--text-muted);
+}
+
+.level-card-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.75rem;
+}
+
+.move-limit-pill {
+  color: var(--text-muted);
+  background-color: var(--bg-input);
+  padding: 0.15rem 0.45rem;
+  border-radius: var(--radius-sm);
+}
+
+.score-pill {
+  color: var(--coin-gold);
+  font-weight: 700;
+}
+
+.status-label {
+  color: var(--text-secondary);
+}
+
+/* Levels States */
+.levels-loading-state,
+.levels-error-state,
+.levels-empty-state {
+  text-align: center;
+  padding: 4rem 2rem;
+  background-color: var(--bg-surface);
+  border: 1px dashed var(--border-color);
+  border-radius: var(--radius-lg);
+}
+
+.levels-error-state {
+  border-color: rgba(239, 68, 68, 0.4);
+}
+
+.error-icon {
+  font-size: 2.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.levels-error-state h3 {
+  margin-bottom: 0.5rem;
+}
+
+.levels-error-state p {
+  color: var(--text-secondary);
+  margin-bottom: 1.5rem;
+}
+
+/* ==========================================================================
+   Milestone 2: Level Launch Modal
+   ========================================================================== */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+  padding: 1.5rem;
+}
+
+.modal-card {
+  width: 100%;
+  max-width: 480px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  animation: modalPop 0.2s ease-out;
+}
+
+@keyframes modalPop {
+  0% { transform: scale(0.95); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1.5rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.modal-header h2 {
+  font-size: 1.5rem;
+  margin-top: 0.25rem;
+}
+
+.modal-close-btn {
+  background: none;
+  border: none;
+  font-size: 1.25rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0.25rem;
+}
+
+.modal-close-btn:hover {
+  color: var(--text-primary);
+}
+
+.modal-body {
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.level-spec-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+  background-color: var(--bg-input);
+  padding: 1rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+}
+
+.spec-item {
+  display: flex;
+  flex-direction: column;
+}
+
+.spec-item-wide {
+  grid-column: 1 / -1;
+}
+
+.spec-label {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+.spec-val {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.star-threshold-box,
+.personal-record-box {
+  background-color: var(--bg-surface-elevated);
+  padding: 0.9rem 1rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+}
+
+.star-threshold-box h4,
+.personal-record-box h4 {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  margin-bottom: 0.4rem;
+}
+
+.star-goal-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.85rem;
+  color: var(--coin-gold);
+}
+
+.personal-record-box p {
+  font-size: 0.875rem;
+  color: var(--text-primary);
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  padding: 1rem 1.5rem;
+  background-color: var(--bg-input);
+  border-top: 1px solid var(--border-color);
+}
+
+.btn-play-modal {
+  padding: 0.65rem 1.5rem;
+  font-size: 1rem;
+}
+
+/* ==========================================================================
+   Milestone 2: Level Ready Preview Screen (Bridge to Milestone 3)
+   ========================================================================== */
+.level-ready-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 60vh;
+}
+
+.level-ready-card {
+  width: 100%;
+  max-width: 580px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: 2.5rem 2rem;
+  box-shadow: var(--shadow-lg);
+  text-align: center;
+}
+
+.ready-badge {
+  display: inline-block;
+  background-color: rgba(34, 197, 94, 0.15);
+  color: var(--color-success);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  font-size: 0.75rem;
+  font-weight: 800;
+  padding: 0.25rem 0.75rem;
+  border-radius: var(--radius-full);
+  margin-bottom: 0.75rem;
+  text-transform: uppercase;
+}
+
+.level-ready-card h2 {
+  font-size: 1.8rem;
+  margin-bottom: 1.25rem;
+}
+
+.milestone-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  background-color: rgba(6, 182, 212, 0.1);
+  border: 1px solid rgba(6, 182, 212, 0.3);
+  border-radius: var(--radius-md);
+  padding: 1rem 1.25rem;
+  text-align: left;
+  margin-bottom: 1.5rem;
+}
+
+.notice-icon {
+  font-size: 1.8rem;
+}
+
+.milestone-notice strong {
+  display: block;
+  color: var(--diff-tutorial);
+  font-size: 0.95rem;
+  margin-bottom: 0.25rem;
+}
+
+.milestone-notice p {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.session-spec-box {
+  background-color: var(--bg-input);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 1.25rem;
+  margin-bottom: 1.75rem;
+  text-align: left;
+}
+
+.session-spec-box h3 {
+  font-size: 0.95rem;
+  color: var(--text-secondary);
+  margin-bottom: 0.75rem;
+  text-transform: uppercase;
+}
+
+.session-details-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.session-details-list div {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.session-details-list span {
+  color: var(--text-muted);
+}
+
+.status-active {
+  color: var(--color-success);
+  font-weight: 700;
+}
+
+.level-ready-actions {
+  display: flex;
+  justify-content: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+/* Responsive Adaptations */
+@media (max-width: 768px) {
+  .navbar-container {
+    flex-wrap: wrap;
+    gap: 0.75rem;
+  }
+  .navbar-nav {
+    order: 3;
+    width: 100%;
+    overflow-x: auto;
+    padding-bottom: 0.25rem;
+  }
+  .hero-banner {
+    padding: 2rem 1.5rem;
+  }
+  .hero-title {
+    font-size: 1.8rem;
+  }
+  .guide-card {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 600px) {
+  .levels-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .levels-progression-card {
+    width: 100%;
+    justify-content: space-around;
+  }
+}
+
+/* Button reset for accessible level cards */
+button.level-card {
+  font-family: inherit;
+  text-align: left;
+  color: inherit;
+  width: 100%;
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-surface);
+  cursor: pointer;
+}
+
+button.level-card:focus-visible {
+  outline: 2px solid var(--primary-green-light);
+  outline-offset: 2px;
+}
+
+/* Card action tag (replaces inert nested button) */
+.card-action-tag {
+  display: inline-block;
+  background-color: rgba(76, 175, 80, 0.15);
+  color: var(--primary-green-light);
+  border: 1px solid rgba(76, 175, 80, 0.3);
+  padding: 0.15rem 0.5rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
