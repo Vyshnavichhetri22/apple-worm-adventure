@@ -21,6 +21,36 @@ const economyConfigSchema = new mongoose.Schema(
         min: 0,
         validate: Number.isInteger,
       },
+      timeAppleExtraMoves: {
+        type: Number,
+        default: 5,
+        min: 1,
+        validate: Number.isInteger,
+      },
+      mysteryAppleConfig: {
+        effects: {
+          type: [String],
+          default: ['BONUS_SCORE', 'EXTRA_MOVES', 'EXTRA_GROWTH'],
+        },
+        bonusScore: {
+          type: Number,
+          default: 200,
+          min: 0,
+          validate: Number.isInteger,
+        },
+        extraMoves: {
+          type: Number,
+          default: 5,
+          min: 1,
+          validate: Number.isInteger,
+        },
+        extraGrowth: {
+          type: Number,
+          default: 1,
+          min: 1,
+          validate: Number.isInteger,
+        },
+      },
       threeStarBonus: {
         type: Number,
         default: 20,
@@ -154,6 +184,13 @@ economyConfigSchema.statics.getActiveConfig = async function () {
       rules: {
         levelCompletionBase: 25,
         goldenAppleReward: 10,
+        timeAppleExtraMoves: 5,
+        mysteryAppleConfig: {
+          effects: ['BONUS_SCORE', 'EXTRA_MOVES', 'EXTRA_GROWTH'],
+          bonusScore: 200,
+          extraMoves: 5,
+          extraGrowth: 1,
+        },
         threeStarBonus: 20,
         twoStarBonus: 10,
         oneStarBonus: 5,

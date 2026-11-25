@@ -7,10 +7,12 @@
 import { useState, useEffect } from 'react';
 import { GAME_CONFIG } from '../config/gameConfig.js';
 import { useAuth } from '../context/AuthContext.jsx';
+import { useWallet } from '../context/WalletContext.jsx';
 import levelService from '../services/levelService.js';
 
 export function HomePage({ onNavigate }) {
   const { user } = useAuth();
+  const { balance } = useWallet();
   const [progress, setProgress] = useState(null);
   const [isLoadingProgress, setIsLoadingProgress] = useState(true);
 
@@ -38,7 +40,7 @@ export function HomePage({ onNavigate }) {
   const totalStars = progress?.totalStars ?? user?.totalStars ?? 0;
   const totalScore = progress?.totalScore ?? user?.totalScore ?? 0;
   const applesEaten = progress?.totalApplesEaten || 0;
-  const coins = user?.coins || 0;
+  const coins = typeof balance === 'number' ? balance : (user?.coins || 0);
 
   return (
     <div className="home-container">
@@ -73,6 +75,13 @@ export function HomePage({ onNavigate }) {
               onClick={() => onNavigate('LEVELS')}
             >
               Browse All Levels ({highestUnlocked}/{GAME_CONFIG.maxLevel} Unlocked)
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => onNavigate('DAILY')}
+            >
+              📅 Daily Challenge (+150 🪙)
             </button>
           </div>
         </div>
@@ -130,6 +139,16 @@ export function HomePage({ onNavigate }) {
       <section className="hubs-section" aria-label="Game Features">
         <h2 className="section-title">Game Portals</h2>
         <div className="hubs-grid">
+          <div className="hub-card" onClick={() => onNavigate('DAILY')}>
+            <div className="hub-header">
+              <span className="hub-icon">📅</span>
+              <span className="badge badge-success">Daily Puzzle</span>
+            </div>
+            <h3>Daily Challenge & Streak</h3>
+            <p>Solve today's featured puzzle, build consecutive day streaks, and claim +150 Coins daily.</p>
+            <span className="hub-link">Play Daily Challenge →</span>
+          </div>
+
           <div className="hub-card" onClick={() => onNavigate('LEVELS')}>
             <div className="hub-header">
               <span className="hub-icon">🗺️</span>
@@ -143,17 +162,27 @@ export function HomePage({ onNavigate }) {
           <div className="hub-card" onClick={() => onNavigate('WALLET')}>
             <div className="hub-header">
               <span className="hub-icon">💰</span>
-              <span className="badge badge-pending">Milestone 5</span>
+              <span className="badge badge-success">Active</span>
             </div>
             <h3>VELoop Wallet & Store</h3>
             <p>View your immutable transaction ledger, claim daily free coins, and inspect earnings.</p>
             <span className="hub-link">Inspect Wallet →</span>
           </div>
 
+          <div className="hub-card" onClick={() => onNavigate('REWARDS')}>
+            <div className="hub-header">
+              <span className="hub-icon">🎁</span>
+              <span className="badge badge-success">Rewarded Economy</span>
+            </div>
+            <h3>Reward Center</h3>
+            <p>Earn free coins, view ad opportunity caps, inspect cooldowns, and check reward history.</p>
+            <span className="hub-link">Enter Reward Center →</span>
+          </div>
+
           <div className="hub-card" onClick={() => onNavigate('LEADERBOARD')}>
             <div className="hub-header">
               <span className="hub-icon">🏆</span>
-              <span className="badge badge-pending">Milestone 6</span>
+              <span className="badge badge-success">Global Rankings</span>
             </div>
             <h3>Global Leaderboards</h3>
             <p>Compare puzzle scores and star ratings with players across the VELoop platform.</p>
@@ -163,7 +192,7 @@ export function HomePage({ onNavigate }) {
           <div className="hub-card" onClick={() => onNavigate('ACHIEVEMENTS')}>
             <div className="hub-header">
               <span className="hub-icon">🎖️</span>
-              <span className="badge badge-pending">Milestone 6</span>
+              <span className="badge badge-success">10 Badges</span>
             </div>
             <h3>Achievements</h3>
             <p>Unlock puzzle badges, completion milestones, and golden apple bonuses.</p>

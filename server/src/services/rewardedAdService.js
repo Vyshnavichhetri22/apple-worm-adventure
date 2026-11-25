@@ -592,6 +592,7 @@ export const rewardedAdService = {
           originalScore,
           newScore,
           bonusScore,
+          scoreDoubled: newScore,
         };
       }
 
@@ -648,6 +649,153 @@ export const rewardedAdService = {
       grantedAt: opportunity.grantedAt,
       expiresAt: opportunity.expiresAt,
     };
+  },
+
+  /**
+   * Retrieve reward transaction history for an authenticated player.
+   */
+  async getRewardHistory(userId, options = {}) {
+    const { limit = 20, status = 'GRANTED' } = options;
+    const query = { userId };
+    if (status && status !== 'ALL') {
+      query.status = status;
+    }
+    const history = await AdOpportunity.find(query)
+      .sort({ grantedAt: -1, createdAt: -1 })
+      .limit(Number(limit) || 20)
+      .lean();
+
+    return history.map((item) => ({
+      opportunityId: item._id,
+      placement: item.placement,
+      rewardType: item.rewardType,
+      rewardAmount: item.rewardAmount,
+      status: item.status,
+      provider: item.provider,
+      providerTransactionId: item.providerTransactionId,
+      grantDetails: item.grantDetails,
+      createdAt: item.createdAt,
+      grantedAt: item.grantedAt,
+    }));
+  },
+
+  /**
+   * Retrieve active economy configuration rules and ad limits.
+   */
+  async getEconomyConfig() {
+    const config = await EconomyConfig.getActiveConfig();
+    return {
+      key: config.key,
+      version: config.version,
+      rules: config.rules,
+    };
+  },
+
+  /**
+   * Calculate player's current ad opportunities, remaining daily/hourly quotas, and cooldowns.
+   */
+  async getOpportunitySummary(userId, sessionId = null) {
+    const economy = await EconomyConfig.getActiveConfig();
+    const rules = economy.rules.adLimits;
+    const cooldownMs = (rules.minSecondsBetweenAds || 30) * 1000;
+    const hourAgo = new Date(Date.now() - 3600000);
+    const dayAgo = new Date(Date.now() - 86400000);
+
+    const quotaDoc = await AdQuotaReservation.findOne({ userId }).lean();
+    const now = Date.now();
+
+    let cooldownRemainingSeconds = 0;
+    if (quotaDoc?.lastRequestedAt) {
+      const elapsed = now - new Date(quotaDoc.lastRequestedAt).getTime();
+      if (elapsed < cooldownMs) {
+        cooldownRemainingSeconds = Math.ceil((cooldownMs - elapsed) / 1000);
+      }
+    }
+
+    const validReservations = (quotaDoc?.reservations || []).filter(
+      (r) => new Date(r.createdAt) >= dayAgo
+    );
+    const dailyUsed = validReservations.length;
+    const hourlyUsed = validReservations.filter((r) => new Date(r.createdAt) >= hourAgo).length;
+
+    let sessionRevivesUsed = 0;
+    let sessionAdsUsed = 0;
+    if (sessionId && mongoose.Types.ObjectId.isValid(sessionId)) {
+      const sessionReservations = validReservations.filter(
+        (r) => r.sessionId && r.sessionId.toString() === sessionId.toString()
+      );
+      sessionAdsUsed = sessionReservations.length;
+      sessionRevivesUsed = sessionReservations.filter((r) => r.rewardType === 'REVIVE').length;
+    }
+
+    return {
+      limits: {
+        maxAdsPerDay: rules.maxAdsPerDay || 20,
+        maxAdsPerHour: rules.maxAdsPerHour || 6,
+        maxAdsPerSession: rules.maxAdsPerSession || 3,
+        maxRevivesPerSession: rules.maxRevivesPerSession || 1,
+        minSecondsBetweenAds: rules.minSecondsBetweenAds || 30,
+        baseCoinReward: rules.baseCoinReward || 25,
+        extraMovesReward: rules.extraMovesReward || 5,
+      },
+      usage: {
+        dailyUsed,
+        dailyRemaining: Math.max(0, (rules.maxAdsPerDay || 20) - dailyUsed),
+        hourlyUsed,
+        hourlyRemaining: Math.max(0, (rules.maxAdsPerHour || 6) - hourlyUsed),
+        sessionAdsUsed,
+        sessionRevivesUsed,
+        sessionRevivesRemaining: Math.max(0, (rules.maxRevivesPerSession || 1) - sessionRevivesUsed),
+        cooldownRemainingSeconds,
+        isEligible:
+          cooldownRemainingSeconds === 0 &&
+          dailyUsed < (rules.maxAdsPerDay || 20) &&
+          hourlyUsed < (rules.maxAdsPerHour || 6),
+      },
+    };
+  },
+
+  /**
+   * Helper endpoint for client/evaluator to simulate ad playback completion.
+   * Executes the full server-side SSV callback verification and grants the reward.
+   */
+  async simulateMockAdCompletion(userId, opportunityId) {
+    const opportunity = await AdOpportunity.findById(opportunityId);
+    if (!opportunity) {
+      const error = new Error('AdOpportunity not found.');
+      error.statusCode = 404;
+      throw error;
+    }
+
+    if (opportunity.userId.toString() !== userId.toString()) {
+      const error = new Error('Access denied: You do not own this opportunity.');
+      error.statusCode = 403;
+      throw error;
+    }
+
+    if (opportunity.status === 'GRANTED') {
+      return {
+        success: true,
+        status: 'GRANTED',
+        opportunityId: opportunity._id,
+        rewardType: opportunity.rewardType,
+        grantDetails: opportunity.grantDetails,
+        alreadyGranted: true,
+      };
+    }
+
+    const mockSecret = process.env.MOCK_PROVIDER_SECRET || 'test_mock_ssv_secret_dev';
+    const customData = `${opportunity._id}:${opportunity.customDataNonce}`;
+    const providerTransactionId = `sim_tx_${opportunity._id}_${Date.now()}`;
+
+    return this.processProviderCallback({
+      provider: 'MOCK',
+      headers: { 'x-mock-provider-secret': mockSecret },
+      body: {
+        custom_data: customData,
+        transaction_id: providerTransactionId,
+      },
+    });
   },
 };
 

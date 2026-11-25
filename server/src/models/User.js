@@ -40,6 +40,11 @@ const userSchema = new mongoose.Schema(
       default: 0,
       min: [0, 'Coins cannot be negative'],
     },
+    // Monotonic sequence guard representing the authoritative Wallet sequence synchronized to this cache
+    coinsWalletSequence: {
+      type: Number,
+      default: null,
+    },
     totalScore: {
       type: Number,
       default: 0,

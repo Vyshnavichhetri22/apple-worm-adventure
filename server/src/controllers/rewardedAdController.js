@@ -118,6 +118,88 @@ export const rewardedAdController = {
       next(error);
     }
   },
+
+  /**
+   * GET /api/ads/history
+   */
+  async getHistory(req, res, next) {
+    try {
+      const userId = req.user.userId;
+      const { limit, status } = req.query;
+
+      const history = await rewardedAdService.getRewardHistory(userId, { limit, status });
+
+      return res.status(200).json({
+        success: true,
+        data: history,
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  /**
+   * GET /api/ads/config
+   */
+  async getConfig(req, res, next) {
+    try {
+      const config = await rewardedAdService.getEconomyConfig();
+
+      return res.status(200).json({
+        success: true,
+        data: config,
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  /**
+   * GET /api/ads/opportunities
+   */
+  async getOpportunities(req, res, next) {
+    try {
+      const userId = req.user.userId;
+      const { sessionId } = req.query;
+
+      const summary = await rewardedAdService.getOpportunitySummary(userId, sessionId);
+
+      return res.status(200).json({
+        success: true,
+        data: summary,
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  /**
+   * POST /api/ads/simulate-watch
+   * Secure, simulated ad completion endpoint for evaluation & local testing.
+   */
+  async simulateWatch(req, res, next) {
+    try {
+      const userId = req.user.userId;
+      const { opportunityId } = req.body;
+
+      if (!opportunityId) {
+        return res.status(400).json({
+          success: false,
+          message: 'opportunityId is required in request body.',
+        });
+      }
+
+      const result = await rewardedAdService.simulateMockAdCompletion(userId, opportunityId);
+
+      return res.status(200).json({
+        success: true,
+        message: 'Rewarded ad verified and reward granted.',
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
 };
 
 export default rewardedAdController;

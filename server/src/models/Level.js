@@ -85,6 +85,17 @@ const appleSchema = new mongoose.Schema(
       },
       default: 'normal',
     },
+    mysteryEffect: {
+      type: {
+        type: String,
+        enum: ['BONUS_SCORE', 'EXTRA_MOVES', 'EXTRA_GROWTH', null],
+        default: null,
+      },
+      value: {
+        type: Number,
+        default: null,
+      },
+    },
   },
   { _id: false }
 );
@@ -324,6 +335,15 @@ const levelSchema = new mongoose.Schema(
       validate: {
         validator: Number.isInteger,
         message: 'Move limit must be an integer',
+      },
+    },
+    timeAppleBonusMoves: {
+      type: Number,
+      min: [1, 'timeAppleBonusMoves must be at least 1'],
+      default: null,
+      validate: {
+        validator: (v) => v === null || v === undefined || Number.isInteger(v),
+        message: 'timeAppleBonusMoves must be an integer',
       },
     },
     starThresholds: {
@@ -869,15 +889,19 @@ levelSchema.pre('validate', function () {
           'Objective "reach_length" requires a positive integer targetValue'
         );
       } else if (initialLen !== null && Number.isInteger(this.targetValue)) {
+        const maxPossibleGrowth = Array.isArray(this.apples)
+          ? this.apples.reduce((sum, a) => sum + (a.type === 'mega' || a.type === 'mystery' ? 2 : 1), 0)
+          : 0;
+        const maxPossibleLength = initialLen + maxPossibleGrowth;
         if (this.targetValue <= initialLen) {
           this.invalidate(
             'targetValue',
             `Objective "reach_length" targetValue (${this.targetValue}) must be greater than initial worm length (${initialLen})`
           );
-        } else if (this.targetValue > initialLen + numApples) {
+        } else if (this.targetValue > maxPossibleLength) {
           this.invalidate(
             'targetValue',
-            `Objective "reach_length" targetValue (${this.targetValue}) exceeds maximum possible length (${initialLen + numApples})`
+            `Objective "reach_length" targetValue (${this.targetValue}) exceeds maximum possible length (${maxPossibleLength})`
           );
         }
       }

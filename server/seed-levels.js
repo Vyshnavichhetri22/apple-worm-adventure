@@ -8,13 +8,17 @@ import dns from 'node:dns';
 // Resolve MongoDB Atlas SRV records
 dns.setServers(['8.8.8.8', '1.1.1.1']);
 
+import fs from 'node:fs';
+import path from 'node:path';
 import dotenv from 'dotenv';
-dotenv.config();
-
 import mongoose from 'mongoose';
-import connectDB from './src/config/database.js';
 import Level from './src/models/Level.js';
 import { validateLevelPlayability } from './src/services/levelValidationService.js';
+import { parseMigrationCliArgs as defaultParseArgs } from './src/utils/parseMigrationCliArgs.js';
+import { validateMigrationTarget as defaultValidateTarget } from './src/utils/validateMigrationTarget.js';
+
+// Explicitly disable Mongoose auto-indexing for the seed workflow to prevent implicit index creation
+mongoose.set('autoIndex', false);
 
 // ============================================================================
 // 50 DISTINCT LEVEL DEFINITIONS
@@ -1052,38 +1056,146 @@ export const levelsData = [
 ];
 
 // ============================================================================
-// IDEMPOTENT SEEDING RUNNER
+// HARDENED IDEMPOTENT SEEDING RUNNER
 // ============================================================================
-async function seedLevels() {
-  console.log('=== Starting Apple Worm Adventure Level Seeding ===\n');
+export async function runSeedLevelsRunner(args = process.argv.slice(2), deps = {}) {
+  // Gate 0: Parse CLI arguments
+  const parseArgs = deps.parseArgs || defaultParseArgs;
+  const parsed = parseArgs(args);
+  if (!parsed.valid) {
+    console.error(`❌ Refusing to run: ${parsed.error}`);
+    return {
+      success: false,
+      reason: parsed.code,
+      error: parsed.error,
+    };
+  }
 
-  let insertedCount = 0;
-  let skippedCount = 0;
-  let failedCount = 0;
+  // Gate 1: Require explicit environment-file selection (no default fallback!)
+  if (!parsed.envFilePath) {
+    const errMsg = 'Refusing to run: An explicit environment file is required. Specify --env-file=<path> or --env=<path>.';
+    console.error(`❌ ${errMsg}`);
+    return {
+      success: false,
+      reason: 'MISSING_ENV_FILE_PARAM',
+      error: errMsg,
+    };
+  }
 
+  // Gate 2: Verify environment file exists and load with override: true
+  const resolvedPath = path.resolve(process.cwd(), parsed.envFilePath);
+  const fileExistsFn = deps.fileExists || fs.existsSync;
+  if (!fileExistsFn(resolvedPath)) {
+    console.error(`❌ Refusing to run: Specified environment file does not exist: "${resolvedPath}"`);
+    return {
+      success: false,
+      reason: 'ENV_FILE_NOT_FOUND',
+      error: `File not found: ${resolvedPath}`,
+    };
+  }
+  const loadEnvFn = deps.loadEnv || ((p) => dotenv.config({ path: p, override: true }));
+  loadEnvFn(resolvedPath);
+  console.log(`Loaded environment configuration from: "${parsed.envFilePath}"`);
+
+  const { isApply, isProductionConfirm } = parsed;
+  const isProd = process.env.NODE_ENV === 'production';
+  const mongoUri = process.env.MONGODB_URI;
+
+  // Gate 3: Check URI presence
+  if (!mongoUri || typeof mongoUri !== 'string' || mongoUri.trim().length === 0) {
+    console.error('❌ Refusing to run: MONGODB_URI environment variable is not defined.');
+    return { success: false, reason: 'MISSING_MONGODB_URI', error: 'MONGODB_URI is not defined.' };
+  }
+
+  // Gate 4: Production safety confirmation
+  if (isApply && isProd && !isProductionConfirm) {
+    console.error(
+      '❌ SAFETY REFUSAL: Running live seed execution in production requires both "--apply" and "--confirm-production" flags.'
+    );
+    return { success: false, reason: 'MISSING_PRODUCTION_CONFIRMATION', error: 'Production confirmation required.' };
+  }
+
+  // Gate 5: Pre-Connection Target Validation
+  const validateTarget = deps.validateTarget || defaultValidateTarget;
+  const validation = validateTarget(mongoUri, {
+    expectedDbName: process.env.MIGRATION_EXPECTED_DB_NAME,
+    allowedHosts: process.env.MIGRATION_ALLOWED_HOSTS,
+    allowProduction: isProductionConfirm,
+    isProductionConfirm,
+  });
+
+  if (!validation.valid) {
+    console.error(`❌ TARGET VALIDATION FAILED: ${validation.error}`);
+    return {
+      success: false,
+      reason: validation.code,
+      error: validation.error,
+    };
+  }
+
+  // Gate 5B: Enforce staging target identity (must be apple_worm_staging unless explicitly confirming production)
+  if (!isProductionConfirm && validation.target.dbName !== 'apple_worm_staging') {
+    const err = `Target database "${validation.target.dbName}" is not the expected staging database "apple_worm_staging".`;
+    console.error(`❌ SAFETY REFUSAL: ${err}`);
+    return {
+      success: false,
+      reason: 'INVALID_STAGING_TARGET',
+      error: err,
+    };
+  }
+
+  const mode = isApply ? 'LIVE EXECUTION' : 'DRY-RUN (READ-ONLY)';
+  console.log('=============================================================');
+  console.log('🌱 APPLE WORM ADVENTURE LEVEL SEED RUNNER');
+  console.log('=============================================================');
+  console.log(`Execution Mode : [ ${mode} ]`);
+  console.log(`Target Database: ${validation.target.redactedUri}`);
+  console.log(`Environment    : ${process.env.NODE_ENV || 'staging'}`);
+  console.log('-------------------------------------------------------------');
+
+  // Disable Mongoose automatic indexing before connection
+  mongoose.set('autoIndex', false);
+
+  const connectFn = deps.connect || (async (uri, opts) => mongoose.connect(uri, opts));
+  const disconnectFn = deps.disconnect || (async () => mongoose.disconnect());
+  const getConnection = deps.getConnection || (() => mongoose.connection);
+  const LevelModel = deps.LevelModel || Level;
+  const validatePlayabilityFn = deps.validatePlayability || validateLevelPlayability;
+  const seedData = deps.levelsData || levelsData;
+
+  let didConnect = false;
   try {
-    // 1. Connect to MongoDB Atlas using the project's standard connectDB function
-    if (typeof connectDB === 'function') {
-      await connectDB();
-    } else if (connectDB && typeof connectDB.connectDB === 'function') {
-      await connectDB.connectDB();
+    const conn = getConnection();
+    if (conn.readyState === 0) {
+      console.log('Connecting to database...');
+      await connectFn(mongoUri, { autoIndex: false, serverSelectionTimeoutMS: 10000 });
+      didConnect = true;
     }
+    const activeConn = getConnection();
+    console.log(`Connected to database: "${activeConn.name || activeConn.db?.databaseName || validation.target.dbName}"`);
 
-    console.log(`Auditing and validating ${levelsData.length} level definitions...\n`);
+    // Fetch existing levels to enforce idempotency and avoid overwrites
+    const existingDocs = await LevelModel.find({}, { levelNumber: 1 }).lean();
+    const existingNumbers = new Set(existingDocs.map((doc) => doc.levelNumber));
 
-    for (const levelDef of levelsData) {
+    let insertedCount = 0;
+    let skippedCount = 0;
+    let failedCount = 0;
+    const failures = [];
+
+    console.log(`Auditing and validating ${seedData.length} level definitions...\n`);
+
+    for (const levelDef of seedData) {
       const { levelNumber } = levelDef;
 
-      // Idempotency: skip existing level documents without overwriting
-      const existing = await Level.findOne({ levelNumber }).lean();
-      if (existing) {
+      if (existingNumbers.has(levelNumber)) {
         console.log(`[SKIPPED] Level ${levelNumber} already exists in database.`);
         skippedCount++;
         continue;
       }
 
-      // Step A: Mongoose Schema Validation
-      const candidateDoc = new Level({ ...levelDef, isActive: true });
+      // Step A: Schema validation
+      const candidateDoc = new LevelModel({ ...levelDef, isActive: true });
       try {
         await candidateDoc.validate();
       } catch (schemaErr) {
@@ -1092,50 +1204,107 @@ async function seedLevels() {
           .join(' | ');
         console.error(`[FAIL] Level ${levelNumber} failed schema validation: ${errorMsgs}`);
         failedCount++;
+        failures.push({ levelNumber, reason: errorMsgs });
         continue;
       }
 
       // Step B: Semantic & Reachability Playability Validation
-      const playability = validateLevelPlayability(candidateDoc.toObject());
-      if (!playability.isValid || playability.details.isInconclusive === true) {
-        const errDetails = playability.errors.join(' | ') || 'Inconclusive search';
+      const rawLevelObj = candidateDoc.toObject ? candidateDoc.toObject() : candidateDoc;
+      const playability = validatePlayabilityFn(rawLevelObj);
+      if (!playability.isValid || playability.details?.isInconclusive === true) {
+        const errDetails = playability.errors?.join(' | ') || 'Inconclusive search';
         console.error(`[FAIL] Level ${levelNumber} failed playability verification: ${errDetails}`);
         failedCount++;
+        failures.push({ levelNumber, reason: errDetails });
         continue;
       }
 
-      // Step C: Insertion
-      await candidateDoc.save();
-      console.log(
-        `[INSERTED] Level ${levelNumber} (${levelDef.difficulty}) verified and saved (states explored: ${playability.details.statesExplored}).`
-      );
-      insertedCount++;
+      // Step C: Apply Gate
+      if (isApply) {
+        await candidateDoc.save();
+        console.log(
+          `[INSERTED] Level ${levelNumber} (${levelDef.difficulty}) verified and saved (states explored: ${playability.details?.statesExplored ?? 'N/A'}).`
+        );
+        insertedCount++;
+      } else {
+        // In Dry-run mode, we record it as planned insertion without saving
+        console.log(
+          `[PLAN_INSERT] Level ${levelNumber} (${levelDef.difficulty}) verified (dry-run: no write).`
+        );
+        insertedCount++;
+      }
     }
 
     console.log('\n=============================================================');
     console.log('Level Seeding Summary:');
-    console.log(`  Total Processed: ${levelsData.length}`);
-    console.log(`  Inserted:        ${insertedCount}`);
-    console.log(`  Skipped:         ${skippedCount}`);
-    console.log(`  Failed:          ${failedCount}`);
+    console.log(`  - Mode:           ${mode}`);
+    console.log(`  - Total Levels:   ${seedData.length}`);
+    console.log(`  - ${isApply ? 'Inserted' : 'Would Insert'}:  ${insertedCount}`);
+    console.log(`  - ${isApply ? 'Skipped' : 'Would Skip'}:   ${skippedCount}`);
+    console.log(`  - Invalid/Failed: ${failedCount}`);
     console.log('=============================================================\n');
 
-    if (failedCount > 0) {
-      console.error(`Seeding aborted with ${failedCount} failures.`);
-      process.exit(1);
+    if (!isApply) {
+      console.log('ℹ️  Dry-run completed successfully. Zero database writes or index modifications occurred.');
+      console.log('   To apply seed records to staging, execute with: --apply\n');
     } else {
-      console.log('All eligible levels processed successfully.');
-      process.exit(0);
+      console.log('✅ Live seeding completed successfully.\n');
     }
+
+    if (failedCount > 0) {
+      console.error(`❌ Seeding completed with ${failedCount} failures.`);
+      return {
+        success: false,
+        dryRun: !isApply,
+        reason: 'SEED_VALIDATION_FAILURE',
+        error: `${failedCount} levels failed validation or persistence.`,
+        report: {
+          total: seedData.length,
+          inserted: insertedCount,
+          skipped: skippedCount,
+          failed: failedCount,
+          failures,
+        },
+      };
+    }
+
+    return {
+      success: true,
+      dryRun: !isApply,
+      report: {
+        total: seedData.length,
+        inserted: insertedCount,
+        skipped: skippedCount,
+        failed: 0,
+      },
+    };
   } catch (err) {
     console.error('Fatal error during level seeding:', err.message);
-    process.exit(1);
+    return { success: false, error: err.message };
   } finally {
-    if (mongoose.connection.readyState !== 0) {
-      await mongoose.connection.close();
-      console.log('MongoDB connection closed.');
+    if (didConnect) {
+      const conn = getConnection();
+      if (conn && conn.readyState !== 0) {
+        await disconnectFn();
+        console.log('Database connection closed.');
+      }
     }
   }
 }
 
-seedLevels();
+export { runSeedLevelsRunner as seedLevels };
+
+const isMain =
+  process.argv[1] &&
+  (process.argv[1].endsWith('seed-levels.js') || process.argv[1].endsWith('seed-levels'));
+
+if (isMain) {
+  runSeedLevelsRunner()
+    .then((res) => {
+      process.exit(res.success ? 0 : 1);
+    })
+    .catch((err) => {
+      console.error('Fatal runner error:', err.message);
+      process.exit(1);
+    });
+}

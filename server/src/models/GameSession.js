@@ -8,6 +8,24 @@ const coordinateSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const appleItemSchema = new mongoose.Schema(
+  {
+    x: { type: Number, required: true },
+    y: { type: Number, required: true },
+    type: { type: String, default: 'normal' },
+  },
+  { _id: false }
+);
+
+const keyItemSchema = new mongoose.Schema(
+  {
+    x: { type: Number, required: true },
+    y: { type: Number, required: true },
+    keyId: { type: String, default: 'default' },
+  },
+  { _id: false }
+);
+
 const checkpointSchema = new mongoose.Schema(
   {
     checkpointIndex: { type: Number, default: 0, min: 0 },
@@ -19,11 +37,61 @@ const checkpointSchema = new mongoose.Schema(
         message: 'Checkpoint wormState must have at least 2 segments.',
       },
     },
-    applesRemaining: { type: [coordinateSchema], default: [] },
-    keysRemaining: { type: [coordinateSchema], default: [] },
+    direction: { type: String, default: 'RIGHT' },
     movesTaken: { type: Number, required: true, min: 0 },
+    applesEaten: { type: Number, default: 0, min: 0 },
+    goldenApplesEaten: { type: Number, default: 0, min: 0 },
+    megaApplesEaten: { type: Number, default: 0, min: 0 },
+    timeApplesEaten: { type: Number, default: 0, min: 0 },
+    mysteryApplesEaten: { type: Number, default: 0, min: 0 },
+    mysteryEffectsApplied: {
+      type: [
+        {
+          x: Number,
+          y: Number,
+          type: { type: String },
+          value: Number,
+        },
+      ],
+      default: [],
+    },
     currentScore: { type: Number, required: true, min: 0 },
+    applesRemaining: { type: [appleItemSchema], default: [] },
+    keysRemaining: { type: [keyItemSchema], default: [] },
+    stones: { type: [coordinateSchema], default: [] },
+    collectedKeys: { type: [String], default: [] },
+    filledPits: { type: [String], default: [] },
     savedAt: { type: Date, default: Date.now },
+  },
+  { _id: false }
+);
+
+const appliedBoosterSchema = new mongoose.Schema(
+  {
+    idempotencyKey: { type: String, required: true },
+    boosterType: { type: String, required: true },
+    movesAdded: { type: Number, required: true },
+    appliedAt: { type: Date, default: Date.now },
+  },
+  { _id: false }
+);
+
+const appliedUndoSchema = new mongoose.Schema(
+  {
+    idempotencyKey: { type: String, required: true },
+    restoredMoves: { type: Number, required: true },
+    restoredCheckpoint: { type: checkpointSchema, required: true },
+    appliedAt: { type: Date, default: Date.now },
+  },
+  { _id: false }
+);
+
+const appliedHintSchema = new mongoose.Schema(
+  {
+    idempotencyKey: { type: String, required: true },
+    hintType: { type: String, default: 'NEXT_MOVES' },
+    solutionMoves: { type: [String], default: [] },
+    appliedAt: { type: Date, default: Date.now },
   },
   { _id: false }
 );
@@ -56,6 +124,16 @@ const gameSessionSchema = new mongoose.Schema(
       type: Number,
       required: true,
       min: 1,
+      index: true,
+    },
+    isDailyChallenge: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    challengeDate: {
+      type: String,
+      default: null,
       index: true,
     },
     status: {
@@ -92,6 +170,37 @@ const gameSessionSchema = new mongoose.Schema(
       default: 0,
       min: 0,
     },
+    goldenApplesCollected: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    megaApplesCollected: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    timeApplesCollected: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    mysteryApplesCollected: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    mysteryEffects: {
+      type: [
+        {
+          x: Number,
+          y: Number,
+          type: { type: String },
+          value: Number,
+        },
+      ],
+      default: [],
+    },
     starsEarned: {
       type: Number,
       default: 0,
@@ -103,23 +212,42 @@ const gameSessionSchema = new mongoose.Schema(
       default: 0,
       min: 0,
     },
-    revivesUsed: {
+    extraMovesAllowed: {
       type: Number,
       default: 0,
       min: 0,
     },
     boostersUsed: {
-      type: [String],
-      default: [],
-    },
-    availableBoosters: {
-      type: [String],
-      default: [],
-    },
-    extraMovesAllowed: {
       type: Number,
       default: 0,
       min: 0,
+    },
+    undosUsed: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    hintsUsed: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    revivesUsed: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    appliedBoosters: {
+      type: [appliedBoosterSchema],
+      default: [],
+    },
+    appliedUndos: {
+      type: [appliedUndoSchema],
+      default: [],
+    },
+    appliedHints: {
+      type: [appliedHintSchema],
+      default: [],
     },
     appliedAdRewards: {
       type: [appliedRewardSchema],
@@ -131,6 +259,8 @@ const gameSessionSchema = new mongoose.Schema(
         'OUT_OF_MOVES',
         'HIT_SPIKE',
         'FALLEN_OFF_GRID',
+        'SELF_COLLISION',
+        'CRUSHED',
         'TRAPPED',
         'MANUAL_RESTART',
         'TIMEOUT',
@@ -140,17 +270,28 @@ const gameSessionSchema = new mongoose.Schema(
       default: null,
     },
     initialState: {
-      worm: { type: [coordinateSchema], required: true },
-      apples: { type: [coordinateSchema], default: [] },
-      keys: { type: [coordinateSchema], default: [] },
-      portal: { type: coordinateSchema, required: true },
-      grid: {
-        cols: { type: Number, required: true },
-        rows: { type: Number, required: true },
-      },
+      type: mongoose.Schema.Types.Mixed,
+      required: true,
     },
     checkpoint: {
       type: checkpointSchema,
+      default: null,
+    },
+    checkpointHistory: {
+      type: [checkpointSchema],
+      default: [],
+    },
+    rewardClaimed: {
+      type: Boolean,
+      default: false,
+    },
+    rewardTransactionId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'WalletTransaction',
+      default: null,
+    },
+    rewardBreakdown: {
+      type: mongoose.Schema.Types.Mixed,
       default: null,
     },
   },

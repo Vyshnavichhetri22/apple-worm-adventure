@@ -1,9 +1,30 @@
-import { useState } from 'react';
+/**
+ * client/src/App.jsx
+ * Screen routing and session orchestration root for Apple Worm Adventure.
+ * 
+ * - Bridges LevelSelectionPage to GamePlayPage upon level start.
+ * - Sequential startup in handleNextLevel (validates level before starting session).
+ * - Implements handleRestartSession returning authoritative fresh session to GamePlayPage.
+ * - Intercepts Navbar navigation during active gameplay via pendingNavigation.
+ * - Cleans up active session state on confirmed exit.
+ * - Milestone 5: Mounts real authoritative VELoop Coin WalletPage when currentScreen === 'WALLET'.
+ */
+
+import { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext.jsx';
+import { WalletProvider } from './context/WalletContext.jsx';
 import Navbar from './components/common/Navbar.jsx';
 import AuthPage from './pages/AuthPage.jsx';
 import HomePage from './pages/HomePage.jsx';
 import LevelSelectionPage from './pages/LevelSelectionPage.jsx';
+import GamePlayPage from './pages/GamePlayPage.jsx';
+import WalletPage from './pages/WalletPage.jsx';
+import RewardCenterPage from './pages/RewardCenterPage.jsx';
+import LeaderboardPage from './pages/LeaderboardPage.jsx';
+import AchievementsPage from './pages/AchievementsPage.jsx';
+import DailyChallengePage from './pages/DailyChallengePage.jsx';
+import dailyChallengeService from './services/dailyChallengeService.js';
+import levelService from './services/levelService.js';
 import { GAME_NAME } from './config/gameConfig.js';
 import './App.css';
 
@@ -30,7 +51,7 @@ function PlaceholderScreen({ title, milestone, description, onBack }) {
  * Level Ready Screen - Confirms active backend game session creation.
  * Displays authoritative session ID and level specs.
  */
-function LevelReadyScreen({ sessionData, onBack, onReturnHome }) {
+function LevelReadyScreen({ sessionData, onStartGame, onBack, onReturnHome }) {
   if (!sessionData) {
     return (
       <div className="placeholder-wrapper">
@@ -49,7 +70,6 @@ function LevelReadyScreen({ sessionData, onBack, onReturnHome }) {
   const levelNumber = session.levelNumber || level?.levelNumber || 1;
   const levelTitle = level?.title || `Level ${levelNumber}`;
 
-  // Read grid from session.initialState or level definition
   const gridCols = session.initialState?.grid?.cols ?? level?.grid?.cols;
   const gridRows = session.initialState?.grid?.rows ?? level?.grid?.rows;
   const gridText =
@@ -76,10 +96,9 @@ function LevelReadyScreen({ sessionData, onBack, onReturnHome }) {
         <div className="milestone-notice">
           <span className="notice-icon">🎮</span>
           <div>
-            <strong>Frontend Milestone 3 Gameplay Bridge:</strong>
+            <strong>Interactive Gameplay Ready:</strong>
             <p>
-              Backend game session initiated successfully. HTML5 Canvas rendering, physics simulation,
-              and keyboard controls will be attached in Milestone 3.
+              Session initialized on server. Canvas simulation, physics engine, and controls are connected.
             </p>
           </div>
         </div>
@@ -115,11 +134,11 @@ function LevelReadyScreen({ sessionData, onBack, onReturnHome }) {
         </div>
 
         <div className="level-ready-actions">
-          <button type="button" className="btn btn-primary" onClick={onBack}>
-            ← Back to Level Map
+          <button type="button" className="btn btn-primary" onClick={onStartGame}>
+            Play Level ▶
           </button>
-          <button type="button" className="btn btn-secondary" onClick={onReturnHome}>
-            Return to Dashboard
+          <button type="button" className="btn btn-secondary" onClick={onBack}>
+            ← Back to Level Map
           </button>
         </div>
       </div>
@@ -134,6 +153,23 @@ function GameApp() {
   const { isAuthenticated, isLoading } = useAuth();
   const [currentScreen, setCurrentScreen] = useState('HOME');
   const [activeGameSession, setActiveGameSession] = useState(null);
+  const [pendingNavigation, setPendingNavigation] = useState(null);
+  const [isOnline, setIsOnline] = useState(
+    typeof navigator !== 'undefined' && typeof navigator.onLine === 'boolean' ? navigator.onLine : true
+  );
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
 
   // Loading Splash Screen while checking JWT session
   if (isLoading) {
@@ -156,21 +192,107 @@ function GameApp() {
     return <AuthPage />;
   }
 
-  const handleStartGame = (sessionData, levelData) => {
-    setActiveGameSession({ session: sessionData, level: levelData });
-    setCurrentScreen('GAME_READY');
+  // Intercept navigation while in GAME to trigger safe abandonment / terminal verification
+  const handleNavigate = (targetScreen) => {
+    if (currentScreen === 'GAME') {
+      setPendingNavigation(targetScreen);
+    } else {
+      setCurrentScreen(targetScreen);
+    }
   };
 
-  // Authenticated Screen Router
+  // Called when GamePlayPage confirms terminal exit has been recorded
+  const handleConfirmExit = (destination = null) => {
+    const dest = destination || (activeGameSession?.isDailyChallenge ? 'DAILY' : 'LEVELS');
+    setActiveGameSession(null);
+    setPendingNavigation(null);
+    setCurrentScreen(dest);
+  };
+
+  // Called from LevelSelectionPage modal
+  const handleStartGame = (sessionData, levelData) => {
+    setActiveGameSession({ session: sessionData, level: levelData });
+    setCurrentScreen('GAME');
+  };
+
+  // Initiates fresh session for same level on restart and updates parent state
+  const handleRestartSession = async (levelNumber) => {
+    const res = await levelService.startLevelSession(levelNumber);
+    if (res && res.success && res.data) {
+      setActiveGameSession(prev => ({
+        ...prev,
+        session: res.data
+      }));
+      return res.data;
+    }
+    throw new Error(res?.message || 'Failed to start a new game session.');
+  };
+
+  // Sequential Next-Level Transition (validates level configuration before starting session)
+  const handleNextLevel = async (nextLevelNumber) => {
+    if (activeGameSession?.isDailyChallenge) {
+      setCurrentScreen('DAILY');
+      return;
+    }
+
+    try {
+      const levelRes = await levelService.getLevelByNumber(nextLevelNumber);
+      if (!levelRes || !levelRes.success || !levelRes.data) {
+        throw new Error('Failed to load level configuration.');
+      }
+
+      const sessionRes = await levelService.startLevelSession(nextLevelNumber);
+      if (!sessionRes || !sessionRes.success || !sessionRes.data?._id) {
+        throw new Error('Failed to initiate session for next level.');
+      }
+
+      setActiveGameSession({ session: sessionRes.data, level: levelRes.data });
+      setPendingNavigation(null);
+      setCurrentScreen('GAME');
+    } catch (err) {
+      console.error('Failed to transition to next level:', err);
+      setCurrentScreen('LEVELS');
+    }
+  };
+
+  // Dedicated Daily Challenge Launcher
+  const handleStartDailyChallenge = async (date) => {
+    try {
+      const res = await dailyChallengeService.startDailyChallenge(date);
+      if (res && res.success && res.session) {
+        const levelRes = await levelService.getLevelByNumber(res.levelNumber);
+        setActiveGameSession({
+          session: res.session,
+          level: levelRes?.data || { levelNumber: res.levelNumber, title: `Daily Challenge - Level ${res.levelNumber}` },
+          isDailyChallenge: true,
+          challengeDate: res.date,
+        });
+        setPendingNavigation(null);
+        setCurrentScreen('GAME');
+      }
+    } catch (err) {
+      console.error('Failed to start daily challenge:', err);
+      alert(err.message || 'Unable to start today\'s daily challenge.');
+    }
+  };
+
   return (
     <div className="app-shell">
-      <Navbar currentScreen={currentScreen} onNavigate={setCurrentScreen} />
+      <Navbar currentScreen={currentScreen} onNavigate={handleNavigate} isOnline={isOnline} />
+      {!isOnline && (
+        <div className="offline-banner" role="alert">
+          <span className="offline-icon">📡</span>
+          <div className="offline-content">
+            <strong>Offline Mode:</strong> Internet connection unavailable. Static shell and local puzzle gameplay are active, but syncing rewards, streaks, and wallet balance requires an active network.
+          </div>
+        </div>
+      )}
       <main className="main-viewport">
-        {currentScreen === 'HOME' && <HomePage onNavigate={setCurrentScreen} />}
+        {currentScreen === 'HOME' && <HomePage onNavigate={handleNavigate} />}
 
         {currentScreen === 'LEVELS' && (
           <LevelSelectionPage
-            onNavigate={setCurrentScreen}
+            onNavigate={handleNavigate}
             onStartGame={handleStartGame}
           />
         )}
@@ -178,35 +300,45 @@ function GameApp() {
         {currentScreen === 'GAME_READY' && (
           <LevelReadyScreen
             sessionData={activeGameSession}
+            onStartGame={() => setCurrentScreen('GAME')}
             onBack={() => setCurrentScreen('LEVELS')}
             onReturnHome={() => setCurrentScreen('HOME')}
           />
         )}
 
-        {currentScreen === 'WALLET' && (
-          <PlaceholderScreen
-            title="VELoop Coin Wallet"
-            milestone="Frontend Milestone 5 & 6"
-            description="Authoritative append-only transaction ledger, daily free coin claims, and ad rewards."
-            onBack={() => setCurrentScreen('HOME')}
+        {currentScreen === 'GAME' && activeGameSession && (
+          <GamePlayPage
+            sessionData={activeGameSession.session}
+            levelData={activeGameSession.level}
+            isDailyChallenge={Boolean(activeGameSession.isDailyChallenge || activeGameSession.session?.isDailyChallenge)}
+            challengeDate={activeGameSession.challengeDate || activeGameSession.session?.challengeDate}
+            pendingNavigation={pendingNavigation}
+            onConfirmExit={handleConfirmExit}
+            onNextLevel={handleNextLevel}
+            onRestartSession={handleRestartSession}
           />
+        )}
+
+        {currentScreen === 'WALLET' && (
+          <WalletPage onNavigate={handleNavigate} />
+        )}
+
+        {currentScreen === 'REWARDS' && (
+          <RewardCenterPage onNavigate={handleNavigate} />
         )}
 
         {currentScreen === 'LEADERBOARD' && (
-          <PlaceholderScreen
-            title="Global Rankings"
-            milestone="Frontend Milestone 6"
-            description="Leaderboard rankings based on stars, scores, and fastest level completions."
-            onBack={() => setCurrentScreen('HOME')}
-          />
+          <LeaderboardPage onNavigate={handleNavigate} />
         )}
 
         {currentScreen === 'ACHIEVEMENTS' && (
-          <PlaceholderScreen
-            title="Player Achievements"
-            milestone="Frontend Milestone 6"
-            description="Badge showcase tracking apples eaten, streaks, and flawless clears."
-            onBack={() => setCurrentScreen('HOME')}
+          <AchievementsPage onNavigate={handleNavigate} />
+        )}
+
+        {currentScreen === 'DAILY' && (
+          <DailyChallengePage
+            onNavigate={handleNavigate}
+            onStartDailyChallenge={handleStartDailyChallenge}
           />
         )}
 
@@ -215,7 +347,7 @@ function GameApp() {
             title="Administrator Level Editor"
             milestone="Frontend Milestone 6"
             description="Level draft authoring, obstacle layout validation, and publishing dashboard."
-            onBack={() => setCurrentScreen('HOME')}
+            onBack={() => handleNavigate('HOME')}
           />
         )}
       </main>
@@ -226,7 +358,9 @@ function GameApp() {
 export function App() {
   return (
     <AuthProvider>
-      <GameApp />
+      <WalletProvider>
+        <GameApp />
+      </WalletProvider>
     </AuthProvider>
   );
 }

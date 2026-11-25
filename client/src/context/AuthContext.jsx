@@ -107,8 +107,9 @@ export function AuthProvider({ children }) {
 
   /**
    * Refreshes the user profile from the server.
+   * Stabilized with useCallback to maintain reference identity across renders.
    */
-  const refreshUser = async () => {
+  const refreshUser = useCallback(async () => {
     try {
       const response = await authService.getMe();
       if (response && response.success && response.user) {
@@ -117,7 +118,16 @@ export function AuthProvider({ children }) {
     } catch (_err) {
       // Ignore background refresh errors
     }
-  };
+  }, []);
+
+  /**
+   * Directly updates user coins in local state when confirmed by authoritative server response.
+   */
+  const updateUserCoins = useCallback((coins) => {
+    if (typeof coins === 'number' && Number.isFinite(coins)) {
+      setUser((prev) => (prev ? { ...prev, coins } : prev));
+    }
+  }, []);
 
   const value = {
     user,
@@ -128,7 +138,8 @@ export function AuthProvider({ children }) {
     login,
     register,
     logout,
-    refreshUser
+    refreshUser,
+    updateUserCoins,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

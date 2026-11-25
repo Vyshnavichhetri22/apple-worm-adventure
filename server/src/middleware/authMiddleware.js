@@ -67,6 +67,7 @@ export const protect = async (req, res, next) => {
     // 6. Attach strictly validated credentials to the request
     req.user = {
       userId: decoded.userId,
+      _id: decoded.userId,
       role: decoded.role,
     };
 
@@ -79,4 +80,34 @@ export const protect = async (req, res, next) => {
       message: 'Server error during authentication',
     });
   }
+};
+
+/**
+ * Optional Authentication Middleware:
+ * Inspects Bearer token if present; attaches req.user if valid, otherwise continues as guest.
+ */
+export const optionalProtect = (req, res, next) => {
+  const secret = process.env.JWT_SECRET;
+  const authHeader = req.headers.authorization;
+
+  if (!secret || !authHeader || !authHeader.startsWith('Bearer ')) {
+    return next();
+  }
+
+  const token = authHeader.split(' ')[1]?.trim();
+  if (!token) return next();
+
+  try {
+    const decoded = jwt.verify(token, secret);
+    if (decoded?.userId && mongoose.Types.ObjectId.isValid(decoded.userId)) {
+      req.user = {
+        userId: decoded.userId,
+        _id: decoded.userId,
+        role: decoded.role || 'player',
+      };
+    }
+  } catch (_e) {
+    // Graceful pass-through: invalid token on optional endpoint does not block request
+  }
+  next();
 };

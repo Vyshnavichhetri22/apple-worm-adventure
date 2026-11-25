@@ -1,47 +1,75 @@
-/**
- * @file levelService.js
- * @description Frontend service interacting with backend Level and Game Session endpoints.
- * Fully compatible with the centralized fetch-based client (api.js).
- */
-
 import api from './api.js';
 
 export const levelService = {
-  /**
-   * Retrieves all active, published levels from GET /api/levels.
-   * @returns {Promise<{ success: boolean, count: number, data: Array<Object> }>}
-   */
   async getPublishedLevels() {
     return api.get('/levels');
   },
 
-  /**
-   * Retrieves a specific level by its number from GET /api/levels/:levelNumber.
-   * @param {number} levelNumber
-   * @returns {Promise<{ success: boolean, data: Object }>}
-   */
+  async getLevels() {
+    return api.get('/levels');
+  },
+
   async getLevelByNumber(levelNumber) {
     return api.get(`/levels/${levelNumber}`);
   },
 
-  /**
-   * Retrieves the current authenticated player's authoritative progress from GET /api/games/progress.
-   * @returns {Promise<{ success: boolean, data: Object }>}
-   */
+  async getLevel(levelNumber) {
+    return api.get(`/levels/${levelNumber}`);
+  },
+
   async getPlayerProgress() {
     return api.get('/games/progress');
   },
 
-  /**
-   * Starts a new authoritative game session for an unlocked level via POST /api/games/start.
-   * @param {number} levelNumber
-   * @returns {Promise<{ success: boolean, message: string, data: Object }>}
-   */
   async startLevelSession(levelNumber) {
     return api.post('/games/start', {
-      levelNumber: Number(levelNumber)
+      levelNumber: Number(levelNumber),
     });
-  }
+  },
+
+  async startSession(levelNumber, clientTelemetry = null) {
+    return api.post('/games/start', {
+      levelNumber: Number(levelNumber),
+      clientTelemetry,
+    });
+  },
+
+  async getGameSession(sessionId) {
+    return api.get(`/games/${sessionId}`);
+  },
+
+  async saveCheckpoint(sessionId, checkpointData) {
+    return api.put(`/games/${sessionId}/checkpoint`, checkpointData);
+  },
+
+  async applyUndo(sessionId, idempotencyKey) {
+    return api.post(`/games/${sessionId}/undo`, { idempotencyKey });
+  },
+
+  async applyBooster(sessionId, boosterType, idempotencyKey) {
+    return api.post(`/games/${sessionId}/booster`, { boosterType, idempotencyKey });
+  },
+
+  async requestHint(sessionId, idempotencyKey) {
+    return api.post(`/games/${sessionId}/hint`, { idempotencyKey });
+  },
+
+  async completeSession(sessionId, completionData) {
+    return api.post(`/games/${sessionId}/complete`, completionData);
+  },
+
+  async failSession(sessionId, failureData) {
+    return api.post(`/games/${sessionId}/fail`, failureData);
+  },
+
+  async abandonSession(sessionId) {
+    return api.post(`/games/${sessionId}/abandon`);
+  },
+
+  async getActiveSession(levelNumber) {
+    const url = levelNumber ? `/games/active/${levelNumber}` : '/games/active';
+    return api.get(url);
+  },
 };
 
 export default levelService;

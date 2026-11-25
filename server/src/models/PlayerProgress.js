@@ -34,6 +34,26 @@ const levelProgressRecordSchema = new mongoose.Schema(
       default: 1,
       min: 1,
     },
+    goldenApplesClaimed: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    megaApplesClaimed: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    timeApplesClaimed: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    mysteryApplesClaimed: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
     firstCompletedAt: {
       type: Date,
       default: Date.now,
@@ -80,6 +100,26 @@ const playerProgressSchema = new mongoose.Schema(
       min: 0,
     },
     totalApplesEaten: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    totalGoldenApplesEaten: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    totalMegaApplesEaten: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    totalTimeApplesEaten: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    totalMysteryApplesEaten: {
       type: Number,
       default: 0,
       min: 0,
