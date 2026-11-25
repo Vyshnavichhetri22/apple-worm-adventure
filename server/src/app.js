@@ -12,6 +12,8 @@ import leaderboardRoutes from './routes/leaderboardRoutes.js';
 import achievementRoutes from './routes/achievementRoutes.js';
 import dailyChallengeRoutes from './routes/dailyChallengeRoutes.js';
 import rewardedAdController from './controllers/rewardedAdController.js';
+import databaseMiddleware from './middleware/databaseMiddleware.js';
+import { getDatabaseStatus, connectDB } from './config/database.js';
 
 const app = express();
 const GAME_NAME = process.env.GAME_NAME || 'APPLE WORM ADVENTURE';
@@ -63,12 +65,31 @@ app.get('/', (req, res) => {
   });
 });
 
-app.get('/api/health', (req, res) => {
-  res.status(200).json({
-    status: 'healthy',
+app.get('/api/health', async (req, res) => {
+  const checkRequested = req.query.checkDb === 'true';
+  if (checkRequested) {
+    try {
+      await connectDB();
+    } catch {
+      // Handled via getDatabaseStatus below
+    }
+  }
+
+  const dbStatus = getDatabaseStatus();
+  const isHealthy = dbStatus.connected;
+
+  res.status(isHealthy || !checkRequested ? 200 : 503).json({
+    status: isHealthy ? 'healthy' : 'degraded',
+    database: {
+      connected: dbStatus.connected,
+      state: dbStatus.state,
+    },
     timestamp: new Date().toISOString(),
   });
 });
+
+// 3.5 Serverless Database Connection Gateway for feature routes
+app.use('/api', databaseMiddleware);
 
 // 4. Mount feature routes
 app.use('/api/auth', authRoutes);
