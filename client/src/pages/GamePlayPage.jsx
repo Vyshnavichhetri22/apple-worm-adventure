@@ -152,7 +152,16 @@ export default function GamePlayPage({
   const processCheckpointQueue = useCallback(async () => {
     if (isProcessingCheckpointQueueRef.current) return;
     const currentId = activeSessionIdRef.current;
-    if (!currentId || backendSessionStatusRef.current !== 'ACTIVE' || isTerminalRef.current) {
+    const isAllowedTerminalDrain =
+      terminalOperationRef.current === 'COMPLETING' ||
+      terminalOperationRef.current === 'FAILING' ||
+      terminalOperationRef.current === 'LEAVING';
+
+    if (
+      !currentId ||
+      backendSessionStatusRef.current !== 'ACTIVE' ||
+      (isTerminalRef.current && !isAllowedTerminalDrain)
+    ) {
       return;
     }
 
@@ -161,7 +170,10 @@ export default function GamePlayPage({
 
     try {
       while (checkpointQueueRef.current.length > 0) {
-        if (backendSessionStatusRef.current !== 'ACTIVE' || isTerminalRef.current) {
+        if (
+          backendSessionStatusRef.current !== 'ACTIVE' ||
+          (isTerminalRef.current && !isAllowedTerminalDrain)
+        ) {
           break;
         }
 
@@ -209,7 +221,13 @@ export default function GamePlayPage({
 
   const queueCheckpoint = useCallback(
     (checkpointData) => {
-      if (isTerminalRef.current || backendSessionStatusRef.current !== 'ACTIVE') return;
+      if (
+        isTerminalRef.current ||
+        terminalOperationRef.current ||
+        backendSessionStatusRef.current !== 'ACTIVE'
+      ) {
+        return;
+      }
       checkpointQueueRef.current.push(checkpointData);
       processCheckpointQueue();
     },
@@ -218,6 +236,11 @@ export default function GamePlayPage({
 
   // Confirms all pending checkpoints are persisted or raises blocking error
   const drainCheckpointQueue = useCallback(async () => {
+    // Reset any prior drain error when worker is idle so retries can cleanly proceed
+    if (!isProcessingCheckpointQueueRef.current) {
+      checkpointDrainErrorRef.current = null;
+    }
+
     if (!isProcessingCheckpointQueueRef.current && checkpointQueueRef.current.length > 0) {
       processCheckpointQueue();
     }
@@ -226,6 +249,9 @@ export default function GamePlayPage({
     while ((isProcessingCheckpointQueueRef.current || checkpointQueueRef.current.length > 0) && attempts < 80) {
       if (checkpointDrainErrorRef.current && !isProcessingCheckpointQueueRef.current) {
         break;
+      }
+      if (!isProcessingCheckpointQueueRef.current && checkpointQueueRef.current.length > 0 && !checkpointDrainErrorRef.current) {
+        processCheckpointQueue();
       }
       await new Promise((resolve) => setTimeout(resolve, 50));
       attempts++;
@@ -236,7 +262,7 @@ export default function GamePlayPage({
       throw new Error(msg);
     }
 
-    if (checkpointQueueRef.current.length > 0) {
+    if (checkpointQueueRef.current.length > 0 || isProcessingCheckpointQueueRef.current) {
       throw new Error('Checkpoint persistence timed out with unsaved moves in queue');
     }
 
