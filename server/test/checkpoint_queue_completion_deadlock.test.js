@@ -50,8 +50,8 @@ describe('Checkpoint Queue & Level Completion Deadlock Prevention Suite', () => 
 
     it('A.2 processCheckpointQueue allows draining when isTerminalRef.current is true during allowed terminal drain', () => {
       assert.ok(
-        fileContent.includes('isTerminalRef.current && !isAllowedTerminalDrain'),
-        'Queue worker must only abort if isTerminalRef is true AND not an allowed terminal drain'
+        fileContent.includes('isTerminalRef.current && !isAllowedTerminalDrain()'),
+        'Queue worker must dynamically evaluate isAllowedTerminalDrain'
       );
     });
 
@@ -77,6 +77,31 @@ describe('Checkpoint Queue & Level Completion Deadlock Prevention Suite', () => 
       assert.ok(
         fileContent.includes('checkpointQueueRef.current.length > 0 || isProcessingCheckpointQueueRef.current'),
         'drainCheckpointQueue must ensure no pending items or in-flight processing before reporting success'
+      );
+    });
+
+    it('A.6 isAllowedTerminalDrain is defined as a dynamic function to prevent stale closure during in-flight operations', () => {
+      assert.ok(
+        fileContent.includes('const isAllowedTerminalDrain = () =>'),
+        'isAllowedTerminalDrain must be a function evaluated dynamically on each loop iteration'
+      );
+    });
+
+    it('A.7 handleCompleteSession ensures final winning checkpoint is enqueued before draining if unconfirmed', () => {
+      assert.ok(
+        fileContent.includes('latestEngineMoves > confirmedCheckpointMovesRef.current'),
+        'handleCompleteSession must check if latest engine moves exceed confirmed moves'
+      );
+      assert.ok(
+        fileContent.includes('checkpointQueueRef.current.push(currentEngine.getCheckpointState())'),
+        'handleCompleteSession must push getCheckpointState() if not already queued'
+      );
+    });
+
+    it('A.8 handleCompleteSession guards against completing with unconfirmed final moves', () => {
+      assert.ok(
+        fileContent.includes('confirmedCheckpointMovesRef.current < currentEngine.movesCount'),
+        'handleCompleteSession must verify confirmedCheckpointMovesRef >= currentEngine.movesCount'
       );
     });
   });
@@ -105,10 +130,30 @@ describe('Checkpoint Queue & Level Completion Deadlock Prevention Suite', () => 
     const completedCalls = [];
     let moveBlockedCount = 0;
 
+    const engineRef = {
+      current: options.currentEngine || {
+        get movesCount() {
+          if (options.engineMoves !== undefined) return options.engineMoves;
+          if (checkpointQueueRef.current.length > 0) {
+            return Math.max(...checkpointQueueRef.current.map((cp) => cp?.movesTaken || 0));
+          }
+          return confirmedCheckpointMovesRef.current || 12;
+        },
+        get applesEaten() {
+          return 1;
+        },
+        getCheckpointState: options.getCheckpointState || (() => ({
+          movesTaken: options.engineMoves !== undefined ? options.engineMoves : 12,
+          wormState: [{ x: 5, y: 5 }, { x: 4, y: 5 }],
+          applesRemaining: [],
+        })),
+      },
+    };
+
     const processCheckpointQueue = async () => {
       if (isProcessingCheckpointQueueRef.current) return;
       const currentId = activeSessionIdRef.current;
-      const isAllowedTerminalDrain =
+      const isAllowedTerminalDrain = () =>
         terminalOperationRef.current === 'COMPLETING' ||
         terminalOperationRef.current === 'FAILING' ||
         terminalOperationRef.current === 'LEAVING';
@@ -116,7 +161,7 @@ describe('Checkpoint Queue & Level Completion Deadlock Prevention Suite', () => 
       if (
         !currentId ||
         backendSessionStatusRef.current !== 'ACTIVE' ||
-        (isTerminalRef.current && !isAllowedTerminalDrain)
+        (isTerminalRef.current && !isAllowedTerminalDrain())
       ) {
         return;
       }
@@ -128,7 +173,7 @@ describe('Checkpoint Queue & Level Completion Deadlock Prevention Suite', () => 
         while (checkpointQueueRef.current.length > 0) {
           if (
             backendSessionStatusRef.current !== 'ACTIVE' ||
-            (isTerminalRef.current && !isAllowedTerminalDrain)
+            (isTerminalRef.current && !isAllowedTerminalDrain())
           ) {
             break;
           }
@@ -235,7 +280,8 @@ describe('Checkpoint Queue & Level Completion Deadlock Prevention Suite', () => 
 
     const handleCompleteSession = async () => {
       const currentId = activeSessionIdRef.current;
-      if (terminalOperationRef.current || submitting || !currentId) {
+      const currentEngine = engineRef.current;
+      if (terminalOperationRef.current || submitting || !currentId || !currentEngine) {
         return false;
       }
 
@@ -248,6 +294,17 @@ describe('Checkpoint Queue & Level Completion Deadlock Prevention Suite', () => 
       submitting = true;
       submitError = null;
 
+      // Verify final move is in queue if not already confirmed
+      const latestEngineMoves = currentEngine.movesCount;
+      if (latestEngineMoves > confirmedCheckpointMovesRef.current) {
+        const alreadyQueued = checkpointQueueRef.current.some(
+          (cp) => cp && cp.movesTaken >= latestEngineMoves
+        );
+        if (!alreadyQueued) {
+          checkpointQueueRef.current.push(currentEngine.getCheckpointState());
+        }
+      }
+
       try {
         await drainCheckpointQueue();
       } catch (drainErr) {
@@ -255,6 +312,14 @@ describe('Checkpoint Queue & Level Completion Deadlock Prevention Suite', () => 
         isTerminalRef.current = false;
         submitting = false;
         submitError = `Failed to sync final move to server: ${drainErr.message}. Click Retry to synchronize.`;
+        return false;
+      }
+
+      if (confirmedCheckpointMovesRef.current < currentEngine.movesCount) {
+        terminalOperationRef.current = null;
+        isTerminalRef.current = false;
+        submitting = false;
+        submitError = 'Failed to sync final move to server: Final move was not acknowledged. Click Retry to synchronize.';
         return false;
       }
 
@@ -281,6 +346,7 @@ describe('Checkpoint Queue & Level Completion Deadlock Prevention Suite', () => 
       isProcessingCheckpointQueueRef,
       confirmedCheckpointMovesRef,
       checkpointDrainErrorRef,
+      engineRef,
       savedCheckpoints,
       completedCalls,
       getMoveBlockedCount: () => moveBlockedCount,
@@ -493,6 +559,141 @@ describe('Checkpoint Queue & Level Completion Deadlock Prevention Suite', () => 
       assert.equal(res1, true);
       assert.equal(res2, false, 'Concurrent duplicate completion attempt must be blocked immediately');
       assert.equal(completionCalls, 1, 'Server completeSession must be called exactly once');
+    });
+
+    it('11. Dynamic terminal permission prevents worker from breaking when completion starts in-flight', async () => {
+      let workerLoops = 0;
+      let transitionHappened = false;
+
+      const h = createHarness({
+        mockSaveCheckpoint: async (sessionId, cp) => {
+          if (cp.movesTaken === 11) {
+            // While move 11 is in-flight, handleCompleteSession starts
+            h.terminalOperationRef.current = 'COMPLETING';
+            h.isTerminalRef.current = true;
+            transitionHappened = true;
+          }
+          workerLoops++;
+          return { success: true };
+        },
+      });
+
+      // Queue move 11 and move 12 while idle and active
+      h.checkpointQueueRef.current.push({ movesTaken: 11 });
+      h.checkpointQueueRef.current.push({ movesTaken: 12 });
+
+      // Worker starts while terminalOperation is null
+      await h.processCheckpointQueue();
+
+      assert.equal(transitionHappened, true, 'Terminal operation transition must have occurred during move 11');
+      assert.equal(workerLoops, 2, 'Worker must continue loop and save move 12 due to dynamic isAllowedTerminalDrain');
+      assert.equal(h.confirmedCheckpointMovesRef.current, 12, 'Confirmed checkpoint moves must reach 12');
+      assert.equal(h.checkpointQueueRef.current.length, 0, 'Queue must be fully drained');
+    });
+
+    it('12. Retry re-enqueues unconfirmed final checkpoint when missing from queue', async () => {
+      const h = createHarness({
+        engineMoves: 12,
+        getCheckpointState: () => ({ movesTaken: 12, wormState: [{ x: 5, y: 5 }] }),
+      });
+
+      // Initial state: move 11 confirmed, move 12 never reached queue
+      h.confirmedCheckpointMovesRef.current = 11;
+      assert.equal(h.checkpointQueueRef.current.length, 0);
+
+      // User triggers handleCompleteSession (or clicks Retry)
+      const success = await h.handleCompleteSession();
+
+      assert.equal(success, true, 'Completion must succeed after re-enqueuing final checkpoint');
+      assert.equal(h.savedCheckpoints.length, 1, 'Final checkpoint must be saved');
+      assert.equal(h.savedCheckpoints[0].movesTaken, 12, 'Saved checkpoint must match final move 12');
+      assert.equal(h.confirmedCheckpointMovesRef.current, 12, 'Confirmed moves must be 12');
+      assert.equal(h.backendSessionStatusRef.current, 'COMPLETED');
+    });
+
+    it('13. Retry does not duplicate already queued or confirmed checkpoints', async () => {
+      let saveCount = 0;
+      const h = createHarness({
+        engineMoves: 12,
+        mockSaveCheckpoint: async (id, cp) => {
+          saveCount++;
+          return { success: true };
+        },
+      });
+
+      // Move 12 is already in the queue
+      h.checkpointQueueRef.current.push({ movesTaken: 12, wormState: [{ x: 5, y: 5 }] });
+
+      // Run completion
+      const res = await h.handleCompleteSession();
+
+      assert.equal(res, true);
+      assert.equal(saveCount, 1, 'Move 12 must only be saved once, without duplication');
+      assert.equal(h.savedCheckpoints.length, 1);
+    });
+
+    it('14. Disallowed terminal operation (e.g. RESTARTING or null operation with isTerminal) blocks queue worker', async () => {
+      const h = createHarness();
+
+      h.checkpointQueueRef.current.push({ movesTaken: 5 });
+      h.isTerminalRef.current = true;
+      h.terminalOperationRef.current = 'RESTARTING';
+
+      await h.processCheckpointQueue();
+
+      assert.equal(h.savedCheckpoints.length, 0, 'Worker must not process checkpoints during RESTARTING');
+      assert.equal(h.checkpointQueueRef.current.length, 1, 'Queue must remain intact');
+
+      // Test with null terminalOperationRef but isTerminal = true
+      h.terminalOperationRef.current = null;
+      await h.processCheckpointQueue();
+      assert.equal(h.savedCheckpoints.length, 0, 'Worker must not process checkpoints when terminalOperation is null and isTerminal is true');
+    });
+
+    it('15. FAILING and LEAVING terminal operations are allowed to drain queued checkpoints', async () => {
+      const h = createHarness();
+
+      // Test FAILING
+      h.checkpointQueueRef.current.push({ movesTaken: 7 });
+      h.isTerminalRef.current = true;
+      h.terminalOperationRef.current = 'FAILING';
+
+      await h.processCheckpointQueue();
+      assert.equal(h.savedCheckpoints.length, 1, 'Worker must drain checkpoint during FAILING');
+      assert.equal(h.savedCheckpoints[0].movesTaken, 7);
+
+      // Test LEAVING
+      h.checkpointQueueRef.current.push({ movesTaken: 8 });
+      h.terminalOperationRef.current = 'LEAVING';
+
+      await h.processCheckpointQueue();
+      assert.equal(h.savedCheckpoints.length, 2, 'Worker must drain checkpoint during LEAVING');
+      assert.equal(h.savedCheckpoints[1].movesTaken, 8);
+    });
+
+    it('16. Unconfirmed final move blocks session completion and prompts retry', async () => {
+      let completeAttempted = false;
+      const h = createHarness({
+        engineMoves: 12,
+        mockSaveCheckpoint: async (id, cp) => {
+          throw new Error('503 Service Unavailable');
+        },
+        mockCompleteSession: async () => {
+          completeAttempted = true;
+          return { success: true };
+        },
+      });
+
+      h.confirmedCheckpointMovesRef.current = 11;
+      h.checkpointQueueRef.current.push({ movesTaken: 12 });
+
+      const res = await h.handleCompleteSession();
+
+      assert.equal(res, false, 'handleCompleteSession must return false when final move is unconfirmed');
+      assert.equal(completeAttempted, false, 'completeSession must NEVER be called with unconfirmed final move');
+      assert.ok(h.getSubmitError().includes('Click Retry to synchronize'), 'Must prompt user to click Retry');
+      assert.equal(h.terminalOperationRef.current, null, 'terminalOperationRef must be cleared for retry');
+      assert.equal(h.getSubmitting(), false, 'submitting must be reset');
     });
   });
 });

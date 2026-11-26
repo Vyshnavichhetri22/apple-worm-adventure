@@ -152,7 +152,7 @@ export default function GamePlayPage({
   const processCheckpointQueue = useCallback(async () => {
     if (isProcessingCheckpointQueueRef.current) return;
     const currentId = activeSessionIdRef.current;
-    const isAllowedTerminalDrain =
+    const isAllowedTerminalDrain = () =>
       terminalOperationRef.current === 'COMPLETING' ||
       terminalOperationRef.current === 'FAILING' ||
       terminalOperationRef.current === 'LEAVING';
@@ -160,7 +160,7 @@ export default function GamePlayPage({
     if (
       !currentId ||
       backendSessionStatusRef.current !== 'ACTIVE' ||
-      (isTerminalRef.current && !isAllowedTerminalDrain)
+      (isTerminalRef.current && !isAllowedTerminalDrain())
     ) {
       return;
     }
@@ -172,7 +172,7 @@ export default function GamePlayPage({
       while (checkpointQueueRef.current.length > 0) {
         if (
           backendSessionStatusRef.current !== 'ACTIVE' ||
-          (isTerminalRef.current && !isAllowedTerminalDrain)
+          (isTerminalRef.current && !isAllowedTerminalDrain())
         ) {
           break;
         }
@@ -631,6 +631,17 @@ export default function GamePlayPage({
     setSubmitting(true);
     setSubmitError(null);
 
+    // Ensure the final winning checkpoint is in queue before draining if not yet confirmed
+    const latestEngineMoves = currentEngine.movesCount;
+    if (latestEngineMoves > confirmedCheckpointMovesRef.current) {
+      const alreadyQueued = checkpointQueueRef.current.some(
+        (cp) => cp && cp.movesTaken >= latestEngineMoves
+      );
+      if (!alreadyQueued) {
+        checkpointQueueRef.current.push(currentEngine.getCheckpointState());
+      }
+    }
+
     // 1. MUST drain and confirm the final winning checkpoint reaches the server before completion
     try {
       await drainCheckpointQueue();
@@ -639,6 +650,15 @@ export default function GamePlayPage({
       isTerminalRef.current = false;
       setSubmitting(false);
       setSubmitError(`Failed to sync final move to server: ${drainErr.message}. Click Retry to synchronize.`);
+      return;
+    }
+
+    // Guard: ensure the final move has actually been acknowledged by the server before proceeding
+    if (confirmedCheckpointMovesRef.current < currentEngine.movesCount) {
+      terminalOperationRef.current = null;
+      isTerminalRef.current = false;
+      setSubmitting(false);
+      setSubmitError('Failed to sync final move to server: Final move was not acknowledged. Click Retry to synchronize.');
       return;
     }
 
