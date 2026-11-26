@@ -11,11 +11,9 @@ import Wallet from './src/models/Wallet.js';
 import WalletTransaction from './src/models/WalletTransaction.js';
 import EconomyConfig from './src/models/EconomyConfig.js';
 import walletService from './src/services/walletService.js';
+import { assertValidTestTarget } from './src/utils/validateTestTarget.js';
 
 dotenv.config();
-
-const MONGODB_URI =
-  process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/apple_worm_adventure_test';
 
 let server;
 let baseUrl = '';
@@ -77,14 +75,25 @@ async function apiRequest(endpoint, options = {}) {
   return { status: response.status, body: data };
 }
 
-async function runEconomyTests() {
+async function runEconomyTests(deps = {}) {
   console.log('\n=============================================================');
   console.log('💰 APPLE WORM ADVENTURE — VELOOP ECONOMY PHASE 1 TEST SUITE');
   console.log('=============================================================\n');
 
+  const validateTarget = deps.validateTarget || assertValidTestTarget;
+  const connectFn = deps.connect || ((uri) => mongoose.connect(uri));
+  const testMongoUri = deps.mongoUri || process.env.TEST_MONGODB_URI || process.env.MONGODB_TEST_URI;
+
+  // Gate: Enforce database target validation BEFORE attempting connection
+  validateTarget(testMongoUri);
+
+  if (deps.validateOnly) {
+    return { validated: true, targetUri: testMongoUri };
+  }
+
   try {
-    console.log('Connecting to MongoDB...');
-    await mongoose.connect(MONGODB_URI);
+    console.log('Connecting to MongoDB test database...');
+    await connectFn(testMongoUri);
     console.log('MongoDB Connected successfully.');
 
     // Launch ephemeral server instance on a random available port
@@ -476,4 +485,15 @@ async function runEconomyTests() {
   }
 }
 
-runEconomyTests();
+export { runEconomyTests };
+
+const isMain =
+  process.argv[1] &&
+  (process.argv[1].endsWith('test-wallet-api.js') || process.argv[1].endsWith('test-wallet-api'));
+
+if (isMain) {
+  runEconomyTests().catch((err) => {
+    console.error('\n💥 Critical Database Safety Abort:', err.message);
+    process.exit(1);
+  });
+}

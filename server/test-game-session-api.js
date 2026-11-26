@@ -6,11 +6,9 @@ import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 import app from './src/app.js';
 import Level from './src/models/Level.js';
+import { assertValidTestTarget } from './src/utils/validateTestTarget.js';
 
 dotenv.config();
-
-const MONGODB_URI =
-  process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/apple_worm_adventure_test';
 
 let server;
 let baseUrl = '';
@@ -84,14 +82,25 @@ async function apiRequest(endpoint, options = {}) {
   return { status: response.status, body: data };
 }
 
-async function runAllTests() {
+async function runAllTests(deps = {}) {
   console.log('\n=============================================================');
   console.log('🍎 APPLE WORM ADVENTURE — GAME SESSION INTEGRATION SUITE');
   console.log('=============================================================\n');
 
+  const validateTarget = deps.validateTarget || assertValidTestTarget;
+  const connectFn = deps.connect || ((uri) => mongoose.connect(uri));
+  const testMongoUri = deps.mongoUri || process.env.TEST_MONGODB_URI || process.env.MONGODB_TEST_URI;
+
+  // Gate: Enforce database target validation BEFORE attempting connection
+  validateTarget(testMongoUri);
+
+  if (deps.validateOnly) {
+    return { validated: true, targetUri: testMongoUri };
+  }
+
   try {
-    console.log('Connecting to MongoDB...');
-    await mongoose.connect(MONGODB_URI);
+    console.log('Connecting to MongoDB test database...');
+    await connectFn(testMongoUri);
     console.log('MongoDB Connected successfully.');
 
     // Launch ephemeral server instance on a random available port
@@ -447,4 +456,15 @@ async function runAllTests() {
   }
 }
 
-runAllTests();
+export { runAllTests };
+
+const isMain =
+  process.argv[1] &&
+  (process.argv[1].endsWith('test-game-session-api.js') || process.argv[1].endsWith('test-game-session-api'));
+
+if (isMain) {
+  runAllTests().catch((err) => {
+    console.error('\n💥 Critical Database Safety Abort:', err.message);
+    process.exit(1);
+  });
+}

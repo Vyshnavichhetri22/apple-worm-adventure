@@ -4,7 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import mongoose from 'mongoose';
 import User from './src/models/User.js';
-import databaseConnection from './src/config/database.js';
+import { assertValidTestTarget } from './src/utils/validateTestTarget.js';
 
 // Apply DNS workaround before any connection attempt to resolve Atlas SRV records
 dns.setServers(['8.8.8.8', '1.1.1.1']);
@@ -14,10 +14,21 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.resolve(__dirname, '.env') });
 
-async function runPasswordTests() {
+async function runPasswordTests(deps = {}) {
   let testUserId = null;
   let testsPassed = 0;
   let testsFailed = 0;
+
+  const validateTarget = deps.validateTarget || assertValidTestTarget;
+  const connectFn = deps.connect || ((uri) => mongoose.connect(uri));
+  const testMongoUri = deps.mongoUri || process.env.TEST_MONGODB_URI || process.env.MONGODB_TEST_URI;
+
+  // Gate: Enforce database target validation BEFORE attempting connection
+  validateTarget(testMongoUri);
+
+  if (deps.validateOnly) {
+    return { validated: true, targetUri: testMongoUri };
+  }
 
   function report(testName, passed, details = '') {
     if (passed) {
@@ -30,18 +41,8 @@ async function runPasswordTests() {
   }
 
   try {
-    console.log('Connecting to MongoDB...');
-
-    // Handle default export function, named connectDB function, or direct connection
-    if (typeof databaseConnection === 'function') {
-      await databaseConnection();
-    } else if (databaseConnection && typeof databaseConnection.connectDB === 'function') {
-      await databaseConnection.connectDB();
-    } else {
-      if (mongoose.connection.readyState === 0) {
-        await mongoose.connect(process.env.MONGODB_URI);
-      }
-    }
+    console.log('Connecting to MongoDB test database...');
+    await connectFn(testMongoUri);
     console.log('Connected to MongoDB.\n--- Starting Password Tests ---');
 
     // Generate unique temporary test user credentials
@@ -109,9 +110,20 @@ async function runPasswordTests() {
     console.log('---------------------------------');
 
     if (testsFailed > 0) {
-      process.exit(1);
+      process.exitCode = 1;
     }
   }
 }
 
-runPasswordTests();
+export { runPasswordTests };
+
+const isMain =
+  process.argv[1] &&
+  (process.argv[1].endsWith('test-user-password.js') || process.argv[1].endsWith('test-user-password'));
+
+if (isMain) {
+  runPasswordTests().catch((err) => {
+    console.error('\n💥 Critical Database Safety Abort:', err.message);
+    process.exit(1);
+  });
+}

@@ -30,7 +30,7 @@ export const TEST_TARGET_ERROR_CODES = {
 const APPROVED_LOCAL_HOSTNAMES = new Set(['localhost', '127.0.0.1', '::1']);
 
 export function validateTestTarget(...args) {
-  const mongoUri = args.length > 0 ? args[0] : process.env.TEST_MONGODB_URI;
+  const mongoUri = args.length > 0 ? args[0] : (process.env.TEST_MONGODB_URI || process.env.MONGODB_TEST_URI);
   // Gate 1: Fail closed if test URI is missing or empty
   if (!mongoUri || typeof mongoUri !== 'string' || mongoUri.trim().length === 0) {
     return {
@@ -134,7 +134,7 @@ export function validateTestTarget(...args) {
 }
 
 export function assertValidTestTarget(...args) {
-  const mongoUri = args.length > 0 ? args[0] : process.env.TEST_MONGODB_URI;
+  const mongoUri = args.length > 0 ? args[0] : (process.env.TEST_MONGODB_URI || process.env.MONGODB_TEST_URI);
   const result = validateTestTarget(mongoUri);
   if (!result.valid) {
     throw new Error(`[TEST_TARGET_VALIDATION_FAILED] ${result.code}: ${result.error}`);

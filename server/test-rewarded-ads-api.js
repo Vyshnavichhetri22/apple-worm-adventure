@@ -17,11 +17,9 @@ import AdOpportunity from './src/models/AdOpportunity.js';
 import AdQuotaReservation from './src/models/AdQuotaReservation.js';
 import adProviderService from './src/services/adProviderService.js';
 import rewardedAdService from './src/services/rewardedAdService.js';
+import { assertValidTestTarget } from './src/utils/validateTestTarget.js';
 
 dotenv.config();
-
-const MONGODB_URI =
-  process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/apple_worm_adventure_test';
 
 let server;
 let baseUrl = '';
@@ -87,10 +85,21 @@ async function apiRequest(endpoint, options = {}) {
   return { status: response.status, body: data };
 }
 
-async function runRewardedAdTests() {
+async function runRewardedAdTests(deps = {}) {
   console.log('\n===============================================================');
   console.log('   VELOOP REWARDS — PHASE 2: REWARDED ADS INTEGRATION SUITE');
   console.log('===============================================================\n');
+
+  const validateTarget = deps.validateTarget || assertValidTestTarget;
+  const connectFn = deps.connect || ((uri) => mongoose.connect(uri));
+  const testMongoUri = deps.mongoUri || process.env.TEST_MONGODB_URI || process.env.MONGODB_TEST_URI;
+
+  // Gate: Enforce database target validation BEFORE attempting connection
+  validateTarget(testMongoUri);
+
+  if (deps.validateOnly) {
+    return { validated: true, targetUri: testMongoUri };
+  }
 
   // Compact 12-character run identifier keeping usernames strictly <= 30 chars
   const runTimestamp = Date.now().toString().slice(-6);
@@ -105,7 +114,8 @@ async function runRewardedAdTests() {
   const txMockValid1 = `tx_mock_valid_${runId}`;
 
   try {
-    await mongoose.connect(MONGODB_URI);
+    console.log('Connecting to MongoDB test database...');
+    await connectFn(testMongoUri);
     console.log('Connected to MongoDB successfully.');
 
     server = http.createServer(app);
@@ -773,4 +783,15 @@ async function runRewardedAdTests() {
   }
 }
 
-runRewardedAdTests();
+export { runRewardedAdTests };
+
+const isMain =
+  process.argv[1] &&
+  (process.argv[1].endsWith('test-rewarded-ads-api.js') || process.argv[1].endsWith('test-rewarded-ads-api'));
+
+if (isMain) {
+  runRewardedAdTests().catch((err) => {
+    console.error('\n💥 Critical Database Safety Abort:', err.message);
+    process.exit(1);
+  });
+}

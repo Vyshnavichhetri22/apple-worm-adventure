@@ -32,11 +32,7 @@ const { default: EconomyConfig } = await import('./src/models/EconomyConfig.js')
 const { default: Inventory } = await import('./src/models/Inventory.js');
 const { default: walletService } = await import('./src/services/walletService.js');
 const { default: inventoryService } = await import('./src/services/inventoryService.js');
-
-// Enforce TEST_MONGODB_URI exclusively (never silently use production MONGO_URI)
-const explicitTestUri = process.env.TEST_MONGODB_URI || process.env.MONGODB_TEST_URI;
-const fallbackLocalTestUri = 'mongodb://127.0.0.1:27017/apple_worm_adventure_test';
-const targetMongoUri = explicitTestUri || fallbackLocalTestUri;
+const { assertValidTestTarget } = await import('./src/utils/validateTestTarget.js');
 
 let server;
 let baseUrl = '';
@@ -94,10 +90,21 @@ async function apiRequest(endpoint, options = {}, customToken = null) {
   return { status: response.status, body: data };
 }
 
-async function runInventoryTestSuite() {
+async function runInventoryTestSuite(deps = {}) {
   console.log('\n=============================================================');
   console.log('🎒 APPLE WORM ADVENTURE — CONSUMABLE INVENTORY TEST SUITE');
   console.log('=============================================================\n');
+
+  const validateTarget = deps.validateTarget || assertValidTestTarget;
+  const connectFn = deps.connect || ((uri) => mongoose.connect(uri));
+  const testMongoUri = deps.mongoUri || process.env.TEST_MONGODB_URI || process.env.MONGODB_TEST_URI;
+
+  // Gate: Enforce database target validation BEFORE attempting connection
+  validateTarget(testMongoUri);
+
+  if (deps.validateOnly) {
+    return { validated: true, targetUri: testMongoUri };
+  }
 
   try {
     // -------------------------------------------------------------
@@ -112,16 +119,9 @@ async function runInventoryTestSuite() {
     // Database Isolation Check (Credentials kept confidential)
     // -------------------------------------------------------------
     console.log('Connecting to MongoDB test database...');
-    await mongoose.connect(targetMongoUri);
+    await connectFn(testMongoUri);
     const dbName = mongoose.connection.name || '';
     console.log(`Connected to database: "${dbName}"`);
-
-    if (!dbName.toLowerCase().includes('test')) {
-      process.exitCode = 1;
-      throw new Error(
-        `CRITICAL SAFETY ABORT: Database "${dbName}" is NOT a verified test database! Aborting.`
-      );
-    }
 
     // Load active economy
     const economy = await EconomyConfig.getActiveConfig();
@@ -985,4 +985,15 @@ async function runInventoryTestSuite() {
   }
 }
 
-runInventoryTestSuite();
+export { runInventoryTestSuite };
+
+const isMain =
+  process.argv[1] &&
+  (process.argv[1].endsWith('test-inventory-api.js') || process.argv[1].endsWith('test-inventory-api'));
+
+if (isMain) {
+  runInventoryTestSuite().catch((err) => {
+    console.error('\n💥 Critical Database Safety Abort:', err.message);
+    process.exit(1);
+  });
+}

@@ -12,7 +12,7 @@ dotenv.config();
 import http from 'node:http';
 import mongoose from 'mongoose';
 import jwt from 'jsonwebtoken';
-import connectDB from './src/config/database.js';
+import { assertValidTestTarget } from './src/utils/validateTestTarget.js';
 import Level from './src/models/Level.js';
 import app from './src/app.js';
 
@@ -31,19 +31,28 @@ function report(testNum, description, condition, details = '') {
   }
 }
 
-async function runLevelApiTests() {
+async function runLevelApiTests(deps = {}) {
   console.log('=== Running Level Management API Integration Tests ===\n');
+
+  const validateTarget = deps.validateTarget || assertValidTestTarget;
+  const connectFn = deps.connect || ((uri) => mongoose.connect(uri));
+  const testMongoUri = deps.mongoUri || process.env.TEST_MONGODB_URI || process.env.MONGODB_TEST_URI;
+
+  // Gate: Enforce database target validation BEFORE attempting connection
+  validateTarget(testMongoUri);
+
+  if (deps.validateOnly) {
+    return { validated: true, targetUri: testMongoUri };
+  }
 
   let server = null;
   const TEST_LEVEL_NUM = 999;
 
   try {
-    // 1. Connect to MongoDB Atlas
-    if (typeof connectDB === 'function') {
-      await connectDB();
-    } else if (connectDB && typeof connectDB.connectDB === 'function') {
-      await connectDB.connectDB();
-    }
+    // 1. Connect to MongoDB test database
+    console.log('Connecting to MongoDB test database...');
+    await connectFn(testMongoUri);
+    console.log('MongoDB Connected successfully.');
 
     // 2. Start ephemeral HTTP server on dynamically assigned free port
     server = http.createServer(app);
@@ -406,7 +415,20 @@ async function runLevelApiTests() {
   );
   console.log('=============================================================\n');
 
-  process.exit(failed > 0 ? 1 : 0);
+  if (failed > 0) {
+    process.exitCode = 1;
+  }
 }
 
-runLevelApiTests();
+export { runLevelApiTests };
+
+const isMain =
+  process.argv[1] &&
+  (process.argv[1].endsWith('test-level-api.js') || process.argv[1].endsWith('test-level-api'));
+
+if (isMain) {
+  runLevelApiTests().catch((err) => {
+    console.error('\n💥 Critical Database Safety Abort:', err.message);
+    process.exit(1);
+  });
+}

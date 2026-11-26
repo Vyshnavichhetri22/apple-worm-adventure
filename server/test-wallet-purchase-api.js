@@ -42,12 +42,7 @@ const { default: WalletTransaction } = await import('./src/models/WalletTransact
 const { default: EconomyConfig } = await import('./src/models/EconomyConfig.js');
 const { default: walletService } = await import('./src/services/walletService.js');
 const { migrateWalletIdempotencyIndex } = await import('./src/utils/migrateWalletIdempotencyIndex.js');
-
-// Determine test MongoDB URI: Require explicit test environment variable or safe local test default.
-// Never silently connect to application production/dev database (do not read MONGODB_URI).
-const explicitTestUri = process.env.TEST_MONGODB_URI || process.env.MONGODB_TEST_URI;
-const fallbackLocalTestUri = 'mongodb://127.0.0.1:27017/apple_worm_adventure_test';
-const targetMongoUri = explicitTestUri || fallbackLocalTestUri;
+const { assertValidTestTarget } = await import('./src/utils/validateTestTarget.js');
 
 let server;
 let baseUrl = '';
@@ -114,10 +109,21 @@ async function apiRequest(endpoint, options = {}) {
   return { status: response.status, body: data };
 }
 
-async function runPurchaseApiTests() {
+async function runPurchaseApiTests(deps = {}) {
   console.log('\n=============================================================');
   console.log('🛒 APPLE WORM ADVENTURE — WALLET PURCHASE API TEST SUITE');
   console.log('=============================================================\n');
+
+  const validateTarget = deps.validateTarget || assertValidTestTarget;
+  const connectFn = deps.connect || ((uri) => mongoose.connect(uri));
+  const testMongoUri = deps.mongoUri || process.env.TEST_MONGODB_URI || process.env.MONGODB_TEST_URI;
+
+  // Gate: Enforce database target validation BEFORE attempting connection
+  validateTarget(testMongoUri);
+
+  if (deps.validateOnly) {
+    return { validated: true, targetUri: testMongoUri };
+  }
 
   try {
     // -------------------------------------------------------------
@@ -138,20 +144,11 @@ async function runPurchaseApiTests() {
     // (URI confidentiality maintained: URI string is never printed)
     // -------------------------------------------------------------
     console.log('Connecting to MongoDB test database...');
-    await mongoose.connect(targetMongoUri);
+    await connectFn(testMongoUri);
     const dbName = mongoose.connection.name || '';
 
     console.log(`Connected to database: "${dbName}"`);
     await migrateWalletIdempotencyIndex(mongoose.connection.db, { quiet: true });
-
-    if (!dbName.toLowerCase().includes('test')) {
-      process.exitCode = 1;
-      throw new Error(
-        `CRITICAL SAFETY ABORT: Database "${dbName}" is NOT a verified test database!\n` +
-        `Target database name must contain "test" (e.g. apple_worm_adventure_test) ` +
-        `to prevent accidental modification of real player data.`
-      );
-    }
     console.log('✅ Database isolation confirmed: Verified test database.\n');
 
     // -------------------------------------------------------------
@@ -700,4 +697,15 @@ async function runPurchaseApiTests() {
   }
 }
 
-runPurchaseApiTests();
+export { runPurchaseApiTests };
+
+const isMain =
+  process.argv[1] &&
+  (process.argv[1].endsWith('test-wallet-purchase-api.js') || process.argv[1].endsWith('test-wallet-purchase-api'));
+
+if (isMain) {
+  runPurchaseApiTests().catch((err) => {
+    console.error('\n💥 Critical Database Safety Abort:', err.message);
+    process.exit(1);
+  });
+}
