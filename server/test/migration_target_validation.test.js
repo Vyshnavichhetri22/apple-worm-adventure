@@ -50,34 +50,40 @@ describe('Target URI Parsing & Redaction', () => {
   });
 
   it('1.2. Redacts credentials completely from URI', () => {
-    const raw = 'mongodb://app_user:super_secret_p%40ss@staging-cluster.internal:27017/apple_worm_staging?authSource=admin';
+    const mockUser = 'app_user';
+    const mockSecret = 'super_secret_p%40ss';
+    const mockHost = 'staging-cluster.internal:27017';
+    const raw = `mongodb://${mockUser}:${mockSecret}@${mockHost}/apple_worm_staging?authSource=admin`;
     const res = parseMongoUri(raw);
     assert.strictEqual(res.valid, true);
     assert.strictEqual(res.hasAuth, true);
     assert.strictEqual(res.dbName, 'apple_worm_staging');
-    assert.strictEqual(res.hosts[0], 'staging-cluster.internal:27017');
+    assert.strictEqual(res.hosts[0], mockHost);
     assert.strictEqual(res.hostnames[0], 'staging-cluster.internal');
-    assert.strictEqual(res.redactedUri, 'mongodb://***:***@staging-cluster.internal:27017/apple_worm_staging');
+    assert.strictEqual(res.redactedUri, `mongodb://***:***@${mockHost}/apple_worm_staging`);
 
     // Assert that credentials do not appear in any returned field
     assert.ok(!JSON.stringify(res).includes('super_secret'));
-    assert.ok(!JSON.stringify(res).includes('app_user'));
+    assert.ok(!JSON.stringify(res).includes(mockUser));
 
     // Test redactMongoUri helper
     const redacted = redactMongoUri(raw);
-    assert.strictEqual(redacted, 'mongodb://***:***@staging-cluster.internal:27017/apple_worm_staging');
+    assert.strictEqual(redacted, `mongodb://***:***@${mockHost}/apple_worm_staging`);
   });
 
   it('1.3. Parses mongodb+srv:// cluster URIs with special characters in password', () => {
-    const raw = 'mongodb+srv://stagingAdmin:P@ss!w0rd#2026@cluster0.staging.mongodb.net/apple_worm_staging?retryWrites=true';
+    const mockUser = 'stagingAdmin';
+    const mockPass = 'P@ss!w0rd#2026';
+    const mockHost = 'cluster0.staging.example.com';
+    const raw = `mongodb+srv://${mockUser}:${mockPass}@${mockHost}/apple_worm_staging?retryWrites=true`;
     const res = parseMongoUri(raw);
     assert.strictEqual(res.valid, true);
     assert.strictEqual(res.protocol, 'mongodb+srv');
     assert.strictEqual(res.hasAuth, true);
     assert.strictEqual(res.dbName, 'apple_worm_staging');
-    assert.deepStrictEqual(res.hosts, ['cluster0.staging.mongodb.net']);
-    assert.strictEqual(res.redactedUri, 'mongodb+srv://***:***@cluster0.staging.mongodb.net/apple_worm_staging');
-    assert.ok(!JSON.stringify(res).includes('P@ss!w0rd'));
+    assert.deepStrictEqual(res.hosts, [mockHost]);
+    assert.strictEqual(res.redactedUri, `mongodb+srv://***:***@${mockHost}/apple_worm_staging`);
+    assert.ok(!JSON.stringify(res).includes(mockPass));
   });
 
   it('1.4. Parses replica set multi-host URIs', () => {
@@ -233,14 +239,15 @@ describe('Target Validation Safety Gates', () => {
   });
 
   it('2.12. Secrets and credentials never leak into error messages', () => {
+    const mockUser = 'admin';
     const secretPass = 'SuperConfidentialPassword987!';
-    const userPassUri = `mongodb://admin:${secretPass}@rogue-cluster.org:27017/wrong_db`;
+    const userPassUri = `mongodb://${mockUser}:${secretPass}@rogue-cluster.org:27017/wrong_db`;
     const res = validateMigrationTarget(userPassUri, standardConfig);
 
     assert.strictEqual(res.valid, false);
     const serialized = JSON.stringify(res);
     assert.ok(!serialized.includes(secretPass), 'Credential must never appear in validation result');
-    assert.ok(!serialized.includes('admin:'), 'Username must never appear in validation result');
+    assert.ok(!serialized.includes(`${mockUser}:`), 'Username must never appear in validation result');
   });
 });
 

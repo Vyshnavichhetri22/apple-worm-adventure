@@ -229,12 +229,15 @@ describe('Serverless MongoDB Connection Lifecycle Suite', () => {
     });
 
     it('3.3. Sanitizes error messages to protect against credential leakage', () => {
-      const sensitiveMsg = 'Failed to connect to mongodb+srv://admin_user:SuperSecretPassword123@cluster0.abc.mongodb.net/prod_db';
+      const mockUser = 'mock_admin_user';
+      const mockPass = 'MockSecretPassword123';
+      const mockHost = 'cluster0.mock-example.internal';
+      const sensitiveMsg = `Failed to connect to mongodb+srv://${mockUser}:${mockPass}@${mockHost}/mock_db`;
       const sanitized = sanitizeErrorMessage(sensitiveMsg);
 
-      assert.ok(!sanitized.includes('SuperSecretPassword123'), 'Secret password must be redacted');
-      assert.ok(!sanitized.includes('admin_user'), 'Username must be redacted');
-      assert.strictEqual(sanitized, 'Failed to connect to mongodb+srv://***:***@cluster0.abc.mongodb.net/prod_db');
+      assert.ok(!sanitized.includes(mockPass), 'Secret password must be redacted');
+      assert.ok(!sanitized.includes(mockUser), 'Username must be redacted');
+      assert.strictEqual(sanitized, `Failed to connect to mongodb+srv://***:***@${mockHost}/mock_db`);
 
       // Handles non-string safely
       assert.strictEqual(sanitizeErrorMessage(null), 'Unknown database error');
