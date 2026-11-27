@@ -7,6 +7,9 @@
 
 import api from './api.js';
 
+let adAvailabilityCache = null;
+let adAvailabilityPromise = null;
+
 export const adService = {
   /**
    * Fetch current active economy configuration and ad limits.
@@ -14,6 +17,48 @@ export const adService = {
   async getEconomyConfig() {
     const res = await api.get('/ads/config');
     return res?.data || res;
+  },
+
+  /**
+   * Authoritative check for whether rewarded ads are operational and supported in the current environment.
+   * Fails closed (returns false) if the request fails, network is down, or server reports unavailable.
+   * Caches in-memory so multiple components or re-renders don't duplicate calls.
+   * @param {boolean} [forceRefresh=false]
+   * @returns {Promise<boolean>}
+   */
+  async getAdAvailability(forceRefresh = false) {
+    if (!forceRefresh && adAvailabilityCache !== null) {
+      return adAvailabilityCache;
+    }
+    if (!forceRefresh && adAvailabilityPromise) {
+      return adAvailabilityPromise;
+    }
+
+    adAvailabilityPromise = (async () => {
+      try {
+        const res = await api.get('/ads/config');
+        const data = res?.data || res;
+        const isAvailable = Boolean(data?.adsAvailable ?? data?.availability?.available ?? false);
+        adAvailabilityCache = isAvailable;
+        return isAvailable;
+      } catch (_err) {
+        // Fail closed on error
+        adAvailabilityCache = false;
+        return false;
+      } finally {
+        adAvailabilityPromise = null;
+      }
+    })();
+
+    return adAvailabilityPromise;
+  },
+
+  /**
+   * Reset in-memory cached availability status (useful for environment transitions or tests).
+   */
+  clearAvailabilityCache() {
+    adAvailabilityCache = null;
+    adAvailabilityPromise = null;
   },
 
   /**

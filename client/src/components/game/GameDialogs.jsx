@@ -30,6 +30,7 @@ export function VictoryDialog({
   onWatchAdDoubleCoins,
   isDailyChallenge = false,
   dailyStreak = null,
+  adsAvailable = false,
 }) {
   if (!isOpen) return null;
 
@@ -210,87 +211,89 @@ export function VictoryDialog({
               </div>
             )}
 
-            {/* VELoop Rewarded Ad Multipliers */}
-            <div
-              className="victory-ad-multipliers"
-              style={{
-                display: 'flex',
-                gap: '0.6rem',
-                marginBottom: '1.25rem',
-                justifyContent: 'center',
-                flexWrap: 'wrap',
-              }}
-            >
-              {!isDoubleCoinsClaimed ? (
-                <button
-                  type="button"
-                  className="btn btn-warning"
-                  style={{
-                    fontSize: '0.82rem',
-                    padding: '0.5rem 0.8rem',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                  }}
-                  onClick={onWatchAdDoubleCoins}
-                  title="Watch a short rewarded ad to double your cleared coins!"
-                  disabled={submitting}
-                >
-                  <span>📺</span>
-                  <span>Double Coins (+{backendRewards.coins})</span>
-                </button>
-              ) : (
-                <span
-                  style={{
-                    fontSize: '0.8rem',
-                    padding: '0.4rem 0.8rem',
-                    borderRadius: '6px',
-                    backgroundColor: 'rgba(234, 179, 8, 0.15)',
-                    color: '#facc15',
-                    border: '1px solid rgba(234, 179, 8, 0.35)',
-                    fontWeight: '600',
-                  }}
-                >
-                  ✓ Coins Doubled!
-                </span>
-              )}
+            {/* VELoop Rewarded Ad Multipliers - Only displayed when ads are authoritatively available */}
+            {adsAvailable && (
+              <div
+                className="victory-ad-multipliers"
+                style={{
+                  display: 'flex',
+                  gap: '0.6rem',
+                  marginBottom: '1.25rem',
+                  justifyContent: 'center',
+                  flexWrap: 'wrap',
+                }}
+              >
+                {!isDoubleCoinsClaimed ? (
+                  <button
+                    type="button"
+                    className="btn btn-warning"
+                    style={{
+                      fontSize: '0.82rem',
+                      padding: '0.5rem 0.8rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                    }}
+                    onClick={onWatchAdDoubleCoins}
+                    title="Watch a short rewarded ad to double your cleared coins!"
+                    disabled={submitting}
+                  >
+                    <span>📺</span>
+                    <span>Double Coins (+{backendRewards.coins})</span>
+                  </button>
+                ) : (
+                  <span
+                    style={{
+                      fontSize: '0.8rem',
+                      padding: '0.4rem 0.8rem',
+                      borderRadius: '6px',
+                      backgroundColor: 'rgba(234, 179, 8, 0.15)',
+                      color: '#facc15',
+                      border: '1px solid rgba(234, 179, 8, 0.35)',
+                      fontWeight: '600',
+                    }}
+                  >
+                    ✓ Coins Doubled!
+                  </span>
+                )}
 
-              {!isDoubleScoreClaimed ? (
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  style={{
-                    fontSize: '0.82rem',
-                    padding: '0.5rem 0.8rem',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    borderColor: '#a855f7',
-                    color: '#c084fc',
-                  }}
-                  onClick={onWatchAdDoubleScore}
-                  title="Watch a short rewarded ad to double your clear score!"
-                  disabled={submitting}
-                >
-                  <span>📺</span>
-                  <span>Double Score (2X)</span>
-                </button>
-              ) : (
-                <span
-                  style={{
-                    fontSize: '0.8rem',
-                    padding: '0.4rem 0.8rem',
-                    borderRadius: '6px',
-                    backgroundColor: 'rgba(168, 85, 247, 0.15)',
-                    color: '#c084fc',
-                    border: '1px solid rgba(168, 85, 247, 0.35)',
-                    fontWeight: '600',
-                  }}
-                >
-                  ✓ Score Doubled!
-                </span>
-              )}
-            </div>
+                {!isDoubleScoreClaimed ? (
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    style={{
+                      fontSize: '0.82rem',
+                      padding: '0.5rem 0.8rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      borderColor: '#a855f7',
+                      color: '#c084fc',
+                    }}
+                    onClick={onWatchAdDoubleScore}
+                    title="Watch a short rewarded ad to double your clear score!"
+                    disabled={submitting}
+                  >
+                    <span>📺</span>
+                    <span>Double Score (2X)</span>
+                  </button>
+                ) : (
+                  <span
+                    style={{
+                      fontSize: '0.8rem',
+                      padding: '0.4rem 0.8rem',
+                      borderRadius: '6px',
+                      backgroundColor: 'rgba(168, 85, 247, 0.15)',
+                      color: '#c084fc',
+                      border: '1px solid rgba(168, 85, 247, 0.35)',
+                      fontWeight: '600',
+                    }}
+                  >
+                    ✓ Score Doubled!
+                  </span>
+                )}
+              </div>
+            )}
 
             <div className="victory-actions">
               {isDailyChallenge ? (
@@ -351,6 +354,7 @@ export function FailureDialog({
   revivesUsed = 0,
   onWatchAdRevive,
   onWatchAdExtraMoves,
+  adsAvailable = false,
 }) {
   if (!isOpen) return null;
 
@@ -390,67 +394,69 @@ export function FailureDialog({
           <div>Time Elapsed: <strong>{duration}s</strong></div>
         </div>
 
-        {/* VELoop Rewarded Ad Recovery Options */}
-        <div
-          className="failure-ad-options"
-          style={{
-            margin: '1rem 0',
-            padding: '0.85rem',
-            backgroundColor: 'rgba(30, 41, 59, 0.7)',
-            borderRadius: '8px',
-            border: '1px solid rgba(51, 65, 85, 0.6)',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '0.6rem',
-          }}
-        >
-          {canRevive && revivesUsed < 1 && (
-            <button
-              type="button"
-              className="btn btn-primary"
-              style={{
-                backgroundColor: '#16a34a',
-                borderColor: '#22c55e',
-                color: '#ffffff',
-                fontWeight: '600',
-                padding: '0.65rem 1rem',
-                fontSize: '0.9rem',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '8px',
-                boxShadow: '0 0 12px rgba(34, 197, 94, 0.35)',
-              }}
-              onClick={onWatchAdRevive}
-              disabled={isRestarting || isUndoing}
-              title="Watch a short rewarded ad to revive and continue from last safe position!"
-            >
-              <span>📺</span>
-              <span>Watch Ad & Revive (1 Free / Level)</span>
-            </button>
-          )}
+        {/* VELoop Rewarded Ad Recovery Options - Only displayed when ads are authoritatively available */}
+        {adsAvailable && ((canRevive && revivesUsed < 1) || (reason === 'OUT_OF_MOVES' && typeof onWatchAdExtraMoves === 'function')) && (
+          <div
+            className="failure-ad-options"
+            style={{
+              margin: '1rem 0',
+              padding: '0.85rem',
+              backgroundColor: 'rgba(30, 41, 59, 0.7)',
+              borderRadius: '8px',
+              border: '1px solid rgba(51, 65, 85, 0.6)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.6rem',
+            }}
+          >
+            {canRevive && revivesUsed < 1 && (
+              <button
+                type="button"
+                className="btn btn-primary"
+                style={{
+                  backgroundColor: '#16a34a',
+                  borderColor: '#22c55e',
+                  color: '#ffffff',
+                  fontWeight: '600',
+                  padding: '0.65rem 1rem',
+                  fontSize: '0.9rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px',
+                  boxShadow: '0 0 12px rgba(34, 197, 94, 0.35)',
+                }}
+                onClick={onWatchAdRevive}
+                disabled={isRestarting || isUndoing}
+                title="Watch a short rewarded ad to revive and continue from last safe position!"
+              >
+                <span>📺</span>
+                <span>Watch Ad & Revive (1 Free / Level)</span>
+              </button>
+            )}
 
-          {reason === 'OUT_OF_MOVES' && typeof onWatchAdExtraMoves === 'function' && (
-            <button
-              type="button"
-              className="btn btn-warning"
-              style={{
-                fontSize: '0.85rem',
-                padding: '0.55rem 1rem',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '8px',
-              }}
-              onClick={onWatchAdExtraMoves}
-              disabled={isRestarting || isUndoing}
-              title="Watch a short rewarded ad to add +5 moves to this run!"
-            >
-              <span>🎯</span>
-              <span>Watch Ad for +5 Extra Moves</span>
-            </button>
-          )}
-        </div>
+            {reason === 'OUT_OF_MOVES' && typeof onWatchAdExtraMoves === 'function' && (
+              <button
+                type="button"
+                className="btn btn-warning"
+                style={{
+                  fontSize: '0.85rem',
+                  padding: '0.55rem 1rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px',
+                }}
+                onClick={onWatchAdExtraMoves}
+                disabled={isRestarting || isUndoing}
+                title="Watch a short rewarded ad to add +5 moves to this run!"
+              >
+                <span>🎯</span>
+                <span>Watch Ad for +5 Extra Moves</span>
+              </button>
+            )}
+          </div>
+        )}
 
         {isRestarting && (
           <div className="dialog-pending-state">

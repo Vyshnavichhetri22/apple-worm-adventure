@@ -35,9 +35,42 @@ export const rewardedAdService = {
   },
 
   /**
+   * Authoritative check: are rewarded ads operational and supported in this environment?
+   * - In production: rewarded ads are UNAVAILABLE unless a real supported web provider
+   *   is configured and integrated. (AdMob is mobile native only; mock provider is prohibited).
+   * - In non-production (development, test): mock provider is permitted.
+   */
+  isAdAvailable() {
+    if (process.env.NODE_ENV === 'production') {
+      // Production requires an integrated, supported real web ad provider.
+      // Currently no real web provider is integrated in this web client.
+      return false;
+    }
+    // Development and test environments permit the mock provider.
+    return true;
+  },
+
+  getAdAvailability() {
+    const available = this.isAdAvailable();
+    return {
+      available,
+      provider: available ? 'MOCK' : null,
+      reason: available
+        ? 'Mock provider enabled for non-production environment.'
+        : 'Rewarded ads are unavailable in production until a supported web provider is integrated.',
+    };
+  },
+
+  /**
    * Request an ad opportunity with atomic quota reservation.
    */
   async requestOpportunity(userId, { placement, sessionId = null, boosterType = 'APPLE_MAGNET' }) {
+    if (!this.isAdAvailable()) {
+      const error = new Error('Rewarded ads are currently unavailable in this environment.');
+      error.statusCode = 503;
+      throw error;
+    }
+
     if (!AD_PLACEMENTS.includes(placement)) {
       const error = new Error(`Invalid placement: ${placement}. Must be one of: ${AD_PLACEMENTS.join(', ')}`);
       error.statusCode = 400;
@@ -688,6 +721,8 @@ export const rewardedAdService = {
       key: config.key,
       version: config.version,
       rules: config.rules,
+      availability: this.getAdAvailability(),
+      adsAvailable: this.isAdAvailable(),
     };
   },
 
@@ -748,10 +783,13 @@ export const rewardedAdService = {
         sessionRevivesRemaining: Math.max(0, (rules.maxRevivesPerSession || 1) - sessionRevivesUsed),
         cooldownRemainingSeconds,
         isEligible:
+          this.isAdAvailable() &&
           cooldownRemainingSeconds === 0 &&
           dailyUsed < (rules.maxAdsPerDay || 20) &&
           hourlyUsed < (rules.maxAdsPerHour || 6),
       },
+      availability: this.getAdAvailability(),
+      adsAvailable: this.isAdAvailable(),
     };
   },
 

@@ -11,6 +11,7 @@ import walletService from '../services/walletService';
 import inventoryService from '../services/inventoryService';
 import { useWallet } from '../context/WalletContext.jsx';
 import api from '../services/api';
+import adService from '../services/adService';
 import { formatMysteryEffectDescription } from '../utils/mysteryApple';
 import audioManager from '../utils/audioManager';
 
@@ -77,6 +78,22 @@ export default function GamePlayPage({
   const [isDoubleCoinsClaimed, setIsDoubleCoinsClaimed] = useState(false);
   const [isDoubleScoreClaimed, setIsDoubleScoreClaimed] = useState(false);
   const [revivesUsedInSession, setRevivesUsedInSession] = useState(sessionData?.revivesUsed || 0);
+  const [isAdsAvailable, setIsAdsAvailable] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+    adService
+      .getAdAvailability()
+      .then((avail) => {
+        if (isMounted) setIsAdsAvailable(Boolean(avail));
+      })
+      .catch(() => {
+        if (isMounted) setIsAdsAvailable(false);
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const { balance: contextBalance, updateBalance } = useWallet();
   const walletBalance = typeof contextBalance === 'number' ? contextBalance : 0;
@@ -1190,6 +1207,11 @@ export default function GamePlayPage({
 
   // Open Rewarded Ad modal for specific placement
   const handleOpenRewardedAd = (placement) => {
+    if (!isAdsAvailable) {
+      setActionFeedback('Rewarded ads are currently unavailable.');
+      setTimeout(() => setActionFeedback(null), 3000);
+      return;
+    }
     setActiveAdPlacement(placement);
     setIsAdModalOpen(true);
   };
@@ -1682,6 +1704,7 @@ export default function GamePlayPage({
         onWatchAdDoubleCoins={() => handleOpenRewardedAd('POST_WIN_DOUBLE_COIN')}
         isDailyChallenge={effectiveIsDaily}
         dailyStreak={dailyStreak}
+        adsAvailable={isAdsAvailable}
       />
 
       <FailureDialog
@@ -1698,6 +1721,7 @@ export default function GamePlayPage({
         revivesUsed={revivesUsedInSession}
         onWatchAdRevive={() => handleOpenRewardedAd('GAME_OVER_REVIVE')}
         onWatchAdExtraMoves={() => handleOpenRewardedAd('MOVE_EXHAUSTED_EXTRA')}
+        adsAvailable={isAdsAvailable}
         canUndo={
           engine.status === 'FAILED' &&
           ['SELF_COLLISION', 'CRUSHED', 'HIT_SPIKE', 'FALLEN_OFF_GRID', 'OUT_OF_MOVES', 'TRAPPED'].includes(engine.failureReason) &&
@@ -1718,6 +1742,7 @@ export default function GamePlayPage({
         isOpen={isAdModalOpen}
         placement={activeAdPlacement}
         sessionId={activeSessionIdRef.current}
+        adsAvailable={isAdsAvailable}
         onClose={() => setIsAdModalOpen(false)}
         onRewardGranted={handleRewardGranted}
       />

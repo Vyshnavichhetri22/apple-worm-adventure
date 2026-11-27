@@ -49,6 +49,7 @@ export function RewardedAdModal({
   placement,
   sessionId = null,
   boosterType = 'APPLE_MAGNET',
+  adsAvailable = null,
   onClose,
   onRewardGranted,
 }) {
@@ -95,6 +96,18 @@ export function RewardedAdModal({
   const startAdFlow = async () => {
     try {
       setPhase('INIT');
+
+      // Server-authoritative availability check before initiating ad playback
+      const isAvailable = typeof adsAvailable === 'boolean'
+        ? adsAvailable
+        : await adService.getAdAvailability();
+
+      if (!isAvailable) {
+        setPhase('ERROR');
+        setErrorMessage('Rewarded ads are currently unavailable in this environment.');
+        return; // Do NOT start the timer or request opportunity
+      }
+
       const opp = await adService.requestOpportunity({
         placement,
         sessionId,
@@ -358,14 +371,16 @@ export function RewardedAdModal({
               >
                 Cancel
               </button>
-              <button
-                type="button"
-                className="btn btn-primary"
-                style={{ flex: 1 }}
-                onClick={startAdFlow}
-              >
-                Retry
-              </button>
+              {adsAvailable !== false && !errorMessage?.includes('unavailable') && (
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  style={{ flex: 1 }}
+                  onClick={startAdFlow}
+                >
+                  Retry
+                </button>
+              )}
             </div>
           </div>
         )}

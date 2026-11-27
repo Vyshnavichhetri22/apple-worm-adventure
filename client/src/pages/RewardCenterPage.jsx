@@ -17,20 +17,32 @@ export function RewardCenterPage({ onNavigate }) {
   const [activePlacement, setActivePlacement] = useState(null);
   const [isAdModalOpen, setIsAdModalOpen] = useState(false);
   const [feedbackNotice, setFeedbackNotice] = useState(null);
+  const [adsAvailable, setAdsAvailable] = useState(false);
 
   const { balance } = useWallet();
 
   const loadRewardCenterData = async () => {
     try {
-      const [sumRes, histRes] = await Promise.all([
+      const [sumRes, histRes, configRes] = await Promise.all([
         adService.getOpportunitySummary().catch(() => null),
         adService.getRewardHistory({ limit: 15 }).catch(() => []),
+        adService.getEconomyConfig().catch(() => null),
       ]);
 
       if (sumRes) setSummary(sumRes);
       if (Array.isArray(histRes)) setHistory(histRes);
+
+      const isAvail = Boolean(
+        configRes?.adsAvailable ??
+        configRes?.availability?.available ??
+        sumRes?.adsAvailable ??
+        sumRes?.availability?.available ??
+        false
+      );
+      setAdsAvailable(isAvail);
     } catch (err) {
       console.error('Failed to load reward center data:', err);
+      setAdsAvailable(false);
     } finally {
       setIsLoading(false);
     }
@@ -43,6 +55,7 @@ export function RewardCenterPage({ onNavigate }) {
   }, []);
 
   const handleWatchStoreCoins = () => {
+    if (!adsAvailable) return;
     setActivePlacement('STORE_FREE_COINS');
     setIsAdModalOpen(true);
   };
@@ -150,6 +163,27 @@ export function RewardCenterPage({ onNavigate }) {
         </div>
       </section>
 
+      {/* Informational Offline/Unavailable Notice */}
+      {!isLoading && !adsAvailable && (
+        <div
+          style={{
+            backgroundColor: 'rgba(51, 65, 85, 0.4)',
+            border: '1px solid rgba(100, 116, 139, 0.4)',
+            color: '#cbd5e1',
+            padding: '0.75rem 1rem',
+            borderRadius: '8px',
+            marginBottom: '1.5rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            fontSize: '0.9rem',
+          }}
+        >
+          <span>ℹ️</span>
+          <span>Rewarded video offers are currently unavailable in this environment. Regular gameplay and store purchases remain fully active.</span>
+        </div>
+      )}
+
       {/* Featured Instant Ad Watcher */}
       <section
         style={{
@@ -187,16 +221,20 @@ export function RewardCenterPage({ onNavigate }) {
             display: 'flex',
             alignItems: 'center',
             gap: '8px',
-            backgroundColor: isEligible ? '#2563eb' : '#475569',
-            borderColor: isEligible ? '#3b82f6' : '#64748b',
-            cursor: isEligible ? 'pointer' : 'not-allowed',
+            backgroundColor: (!isLoading && adsAvailable && isEligible) ? '#2563eb' : '#475569',
+            borderColor: (!isLoading && adsAvailable && isEligible) ? '#3b82f6' : '#64748b',
+            cursor: (!isLoading && adsAvailable && isEligible) ? 'pointer' : 'not-allowed',
           }}
-          disabled={!isEligible}
+          disabled={isLoading || !adsAvailable || !isEligible}
           onClick={handleWatchStoreCoins}
         >
           <span>📺</span>
           <span>
-            {cooldownSecs > 0
+            {isLoading
+              ? 'Checking...'
+              : !adsAvailable
+              ? 'Ads Unavailable'
+              : cooldownSecs > 0
               ? `Cooldown (${cooldownSecs}s)`
               : (usage.dailyRemaining ?? 1) <= 0
               ? 'Daily Limit Reached'
@@ -221,7 +259,12 @@ export function RewardCenterPage({ onNavigate }) {
           <div className="hub-card" style={{ cursor: 'default' }}>
             <div className="hub-header">
               <span className="hub-icon">💚</span>
-              <span className="badge badge-success">Active In Game</span>
+              <span
+                className={adsAvailable ? "badge badge-success" : "badge"}
+                style={!adsAvailable ? { backgroundColor: 'rgba(100, 116, 139, 0.25)', color: '#94a3b8' } : {}}
+              >
+                {adsAvailable ? "Active In Game" : "Unavailable"}
+              </span>
             </div>
             <h3>Second Chance Revive</h3>
             <p>Triggered on level failure. Watch a short ad to continue from your last safe checkpoint.</p>
@@ -231,7 +274,12 @@ export function RewardCenterPage({ onNavigate }) {
           <div className="hub-card" style={{ cursor: 'default' }}>
             <div className="hub-header">
               <span className="hub-icon">🪙</span>
-              <span className="badge badge-success">Active In Game</span>
+              <span
+                className={adsAvailable ? "badge badge-success" : "badge"}
+                style={!adsAvailable ? { backgroundColor: 'rgba(100, 116, 139, 0.25)', color: '#94a3b8' } : {}}
+              >
+                {adsAvailable ? "Active In Game" : "Unavailable"}
+              </span>
             </div>
             <h3>Double Coins Multiplier</h3>
             <p>Triggered on level victory. Watch an ad to double all standard and golden apple coins earned.</p>
@@ -241,7 +289,12 @@ export function RewardCenterPage({ onNavigate }) {
           <div className="hub-card" style={{ cursor: 'default' }}>
             <div className="hub-header">
               <span className="hub-icon">🏆</span>
-              <span className="badge badge-success">Active In Game</span>
+              <span
+                className={adsAvailable ? "badge badge-success" : "badge"}
+                style={!adsAvailable ? { backgroundColor: 'rgba(100, 116, 139, 0.25)', color: '#94a3b8' } : {}}
+              >
+                {adsAvailable ? "Active In Game" : "Unavailable"}
+              </span>
             </div>
             <h3>Double Score Multiplier</h3>
             <p>Triggered on level victory. Upgrade your final clear score by 2X on the global leaderboard.</p>
@@ -251,7 +304,12 @@ export function RewardCenterPage({ onNavigate }) {
           <div className="hub-card" style={{ cursor: 'default' }}>
             <div className="hub-header">
               <span className="hub-icon">🎯</span>
-              <span className="badge badge-success">Active In Game</span>
+              <span
+                className={adsAvailable ? "badge badge-success" : "badge"}
+                style={!adsAvailable ? { backgroundColor: 'rgba(100, 116, 139, 0.25)', color: '#94a3b8' } : {}}
+              >
+                {adsAvailable ? "Active In Game" : "Unavailable"}
+              </span>
             </div>
             <h3>Extra Moves (+5)</h3>
             <p>Triggered when move limit is reached. Add +5 extra moves to solve tight puzzles.</p>
@@ -261,7 +319,12 @@ export function RewardCenterPage({ onNavigate }) {
           <div className="hub-card" style={{ cursor: 'default' }}>
             <div className="hub-header">
               <span className="hub-icon">💡</span>
-              <span className="badge badge-success">Active In Game</span>
+              <span
+                className={adsAvailable ? "badge badge-success" : "badge"}
+                style={!adsAvailable ? { backgroundColor: 'rgba(100, 116, 139, 0.25)', color: '#94a3b8' } : {}}
+              >
+                {adsAvailable ? "Active In Game" : "Unavailable"}
+              </span>
             </div>
             <h3>Free Puzzle Hint</h3>
             <p>Get immediate path recommendations and apple routes without spending wallet coins.</p>
@@ -271,7 +334,12 @@ export function RewardCenterPage({ onNavigate }) {
           <div className="hub-card" style={{ cursor: 'default' }}>
             <div className="hub-header">
               <span className="hub-icon">⚡</span>
-              <span className="badge badge-success">Active In Game</span>
+              <span
+                className={adsAvailable ? "badge badge-success" : "badge"}
+                style={!adsAvailable ? { backgroundColor: 'rgba(100, 116, 139, 0.25)', color: '#94a3b8' } : {}}
+              >
+                {adsAvailable ? "Active In Game" : "Unavailable"}
+              </span>
             </div>
             <h3>Apple Magnet Booster</h3>
             <p>Activate magnetic apple collection for the session to reach distant apples safely.</p>
@@ -380,6 +448,7 @@ export function RewardCenterPage({ onNavigate }) {
       <RewardedAdModal
         isOpen={isAdModalOpen}
         placement={activePlacement}
+        adsAvailable={adsAvailable}
         onClose={() => setIsAdModalOpen(false)}
         onRewardGranted={handleRewardGranted}
       />
