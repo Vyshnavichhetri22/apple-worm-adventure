@@ -104,6 +104,8 @@ export default function GamePlayPage({
   // FIFO Checkpoint Queue and error tracking
   const checkpointQueueRef = useRef([]);
   const isProcessingCheckpointQueueRef = useRef(false);
+  const inFlightCheckpointRef = useRef(null);
+  const activeProcessingCheckpointRef = useRef(null);
   const confirmedCheckpointMovesRef = useRef(0);
   const checkpointDrainErrorRef = useRef(null);
   const queuedExitDestinationRef = useRef(null);
@@ -148,6 +150,59 @@ export default function GamePlayPage({
     }
   }, []);
 
+  // Safe Terminal-Only Checkpoint Queue Compaction
+  // When entering terminal drain (COMPLETING, FAILING, LEAVING), collapses redundant unsent intermediate
+  // pending checkpoints down to the newest terminal snapshot, while strictly preserving any in-flight request.
+  const compactTerminalCheckpointQueue = useCallback(() => {
+    const isAllowedTerminalDrain =
+      terminalOperationRef.current === 'COMPLETING' ||
+      terminalOperationRef.current === 'FAILING' ||
+      terminalOperationRef.current === 'LEAVING';
+
+    if (!isAllowedTerminalDrain) {
+      return;
+    }
+
+    const queue = checkpointQueueRef.current;
+    if (!Array.isArray(queue) || queue.length <= 1) {
+      return;
+    }
+
+    const hasInFlightOrActive =
+      isProcessingCheckpointQueueRef.current &&
+      (inFlightCheckpointRef.current !== null || activeProcessingCheckpointRef.current !== null);
+
+    if (hasInFlightOrActive) {
+      // In-flight/active item is guaranteed at queue[0]. Must never remove, replace or mutate it.
+      if (queue.length > 2) {
+        const activeItem = queue[0];
+        let newest = queue[queue.length - 1];
+        for (let i = queue.length - 1; i >= 1; i--) {
+          if (queue[i] && (newest === null || queue[i].movesTaken >= newest.movesTaken)) {
+            newest = queue[i];
+          }
+        }
+        if (newest && newest !== activeItem && newest.movesTaken > activeItem.movesTaken) {
+          checkpointQueueRef.current = [activeItem, newest];
+        } else if (newest && newest.movesTaken <= activeItem.movesTaken) {
+          checkpointQueueRef.current = [activeItem];
+        }
+      }
+    } else {
+      // Worker is idle or between items. No request is currently in-flight.
+      // Entire queue consists of unsent pending snapshots.
+      let newest = queue[queue.length - 1];
+      for (let i = queue.length - 1; i >= 0; i--) {
+        if (queue[i] && (newest === null || queue[i].movesTaken >= newest.movesTaken)) {
+          newest = queue[i];
+        }
+      }
+      if (newest) {
+        checkpointQueueRef.current = [newest];
+      }
+    }
+  }, []);
+
   // Process FIFO Checkpoint Queue in strict order without dropping failed checkpoints
   const processCheckpointQueue = useCallback(async () => {
     if (isProcessingCheckpointQueueRef.current) return;
@@ -177,6 +232,11 @@ export default function GamePlayPage({
           break;
         }
 
+        // Apply terminal compaction dynamically between items if in terminal operation
+        if (isAllowedTerminalDrain()) {
+          compactTerminalCheckpointQueue();
+        }
+
         const nextCp = checkpointQueueRef.current[0];
 
         if (nextCp.movesTaken <= confirmedCheckpointMovesRef.current) {
@@ -184,11 +244,13 @@ export default function GamePlayPage({
           continue;
         }
 
+        activeProcessingCheckpointRef.current = nextCp;
         let saved = false;
         let lastErr = null;
 
         for (let attempt = 0; attempt < 3; attempt++) {
           try {
+            inFlightCheckpointRef.current = nextCp;
             const res = await levelService.saveCheckpoint(currentId, nextCp);
             if (res && (res.success || res.checkpoint)) {
               confirmedCheckpointMovesRef.current = nextCp.movesTaken;
@@ -205,9 +267,13 @@ export default function GamePlayPage({
             if (err.status === 429 || err.statusCode === 429 || err.message?.includes('Too many requests')) {
               break;
             }
+          } finally {
+            inFlightCheckpointRef.current = null;
           }
           await new Promise((r) => setTimeout(r, 100 * (attempt + 1)));
         }
+
+        activeProcessingCheckpointRef.current = null;
 
         if (!saved) {
           checkpointDrainErrorRef.current = lastErr || new Error('Checkpoint failed to persist after 3 attempts');
@@ -215,9 +281,11 @@ export default function GamePlayPage({
         }
       }
     } finally {
+      inFlightCheckpointRef.current = null;
+      activeProcessingCheckpointRef.current = null;
       isProcessingCheckpointQueueRef.current = false;
     }
-  }, []);
+  }, [compactTerminalCheckpointQueue]);
 
   const queueCheckpoint = useCallback(
     (checkpointData) => {
@@ -240,6 +308,8 @@ export default function GamePlayPage({
     if (!isProcessingCheckpointQueueRef.current) {
       checkpointDrainErrorRef.current = null;
     }
+
+    compactTerminalCheckpointQueue();
 
     if (!isProcessingCheckpointQueueRef.current && checkpointQueueRef.current.length > 0) {
       processCheckpointQueue();
@@ -267,7 +337,7 @@ export default function GamePlayPage({
     }
 
     return true;
-  }, [processCheckpointQueue]);
+  }, [processCheckpointQueue, compactTerminalCheckpointQueue]);
 
   useEffect(() => {
     if (!levelData) return;
@@ -332,6 +402,8 @@ export default function GamePlayPage({
     isTerminalRef.current = false;
     checkpointQueueRef.current = [];
     isProcessingCheckpointQueueRef.current = false;
+    inFlightCheckpointRef.current = null;
+    activeProcessingCheckpointRef.current = null;
     checkpointDrainErrorRef.current = null;
     queuedExitDestinationRef.current = null;
 
@@ -642,6 +714,9 @@ export default function GamePlayPage({
       }
     }
 
+    // Safely compact any unsent pending checkpoints for terminal drain
+    compactTerminalCheckpointQueue();
+
     // 1. MUST drain and confirm the final winning checkpoint reaches the server before completion
     try {
       await drainCheckpointQueue();
@@ -756,6 +831,7 @@ export default function GamePlayPage({
     reconcileSessionWithBackend,
     processQueuedNavigation,
     updateBackendStatus,
+    compactTerminalCheckpointQueue,
     drainCheckpointQueue,
     refreshUserEconomy,
   ]);

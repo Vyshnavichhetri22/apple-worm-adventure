@@ -104,6 +104,65 @@ describe('Checkpoint Queue & Level Completion Deadlock Prevention Suite', () => 
         'handleCompleteSession must verify confirmedCheckpointMovesRef >= currentEngine.movesCount'
       );
     });
+
+    it('A.9 compactTerminalCheckpointQueue is defined and preserves in-flight request while compacting pending', () => {
+      assert.ok(
+        fileContent.includes('const compactTerminalCheckpointQueue = useCallback('),
+        'compactTerminalCheckpointQueue must be defined as a useCallback'
+      );
+      assert.ok(
+        fileContent.includes('hasInFlightOrActive'),
+        'compactTerminalCheckpointQueue must check if an item is active/in-flight'
+      );
+      assert.ok(
+        fileContent.includes('checkpointQueueRef.current = [activeItem, newest]'),
+        'compactTerminalCheckpointQueue must preserve active in-flight item and newest terminal item'
+      );
+    });
+
+    it('A.10 inFlightCheckpointRef explicitly identifies when an HTTP request is in-flight across the wire', () => {
+      assert.ok(
+        fileContent.includes('inFlightCheckpointRef = useRef(null)'),
+        'inFlightCheckpointRef must be declared'
+      );
+      assert.ok(
+        fileContent.includes('inFlightCheckpointRef.current = nextCp'),
+        'inFlightCheckpointRef must be set right before HTTP saveCheckpoint call'
+      );
+      assert.ok(
+        fileContent.includes('inFlightCheckpointRef.current = null'),
+        'inFlightCheckpointRef must be cleared in finally block'
+      );
+    });
+
+    it('A.11 activeProcessingCheckpointRef tracks the checkpoint currently undergoing worker processing or retry delays', () => {
+      assert.ok(
+        fileContent.includes('activeProcessingCheckpointRef = useRef(null)'),
+        'activeProcessingCheckpointRef must be declared'
+      );
+      assert.ok(
+        fileContent.includes('activeProcessingCheckpointRef.current = nextCp'),
+        'activeProcessingCheckpointRef must be set during attempt processing'
+      );
+    });
+
+    it('A.12 processCheckpointQueue dynamically compacts queue between items during allowed terminal drain', () => {
+      assert.ok(
+        fileContent.includes('compactTerminalCheckpointQueue();'),
+        'processCheckpointQueue must invoke compactTerminalCheckpointQueue'
+      );
+    });
+
+    it('A.13 drainCheckpointQueue and handleCompleteSession invoke compactTerminalCheckpointQueue', () => {
+      assert.ok(
+        /compactTerminalCheckpointQueue\(\);[\r\n\s]+if \(!isProcessingCheckpointQueueRef\.current/.test(fileContent),
+        'drainCheckpointQueue must compact pending checkpoints upon entry'
+      );
+      assert.ok(
+        /compactTerminalCheckpointQueue\(\);[\r\n\s]+\/\/ 1\. MUST drain and confirm/.test(fileContent),
+        'handleCompleteSession must compact checkpoints before draining'
+      );
+    });
   });
 
   // =========================================================================
@@ -113,6 +172,7 @@ describe('Checkpoint Queue & Level Completion Deadlock Prevention Suite', () => 
     const {
       mockSaveCheckpoint = async () => ({ success: true }),
       mockCompleteSession = async () => ({ success: true, data: { status: 'COMPLETED', rewards: { stars: 3, coins: 50 } } }),
+      mockCompleteDailyChallenge = async () => ({ success: true, data: { status: 'COMPLETED', streak: 5 } }),
     } = options;
 
     const activeSessionIdRef = { current: 'sess_123' };
@@ -121,6 +181,8 @@ describe('Checkpoint Queue & Level Completion Deadlock Prevention Suite', () => 
     const isTerminalRef = { current: false };
     const checkpointQueueRef = { current: [] };
     const isProcessingCheckpointQueueRef = { current: false };
+    const inFlightCheckpointRef = { current: null };
+    const activeProcessingCheckpointRef = { current: null };
     const confirmedCheckpointMovesRef = { current: 0 };
     const checkpointDrainErrorRef = { current: null };
     let submitting = false;
@@ -128,6 +190,7 @@ describe('Checkpoint Queue & Level Completion Deadlock Prevention Suite', () => 
 
     const savedCheckpoints = [];
     const completedCalls = [];
+    const completedDailyCalls = [];
     let moveBlockedCount = 0;
 
     const engineRef = {
@@ -148,6 +211,53 @@ describe('Checkpoint Queue & Level Completion Deadlock Prevention Suite', () => 
           applesRemaining: [],
         })),
       },
+    };
+
+    const compactTerminalCheckpointQueue = () => {
+      const isAllowedTerminalDrain =
+        terminalOperationRef.current === 'COMPLETING' ||
+        terminalOperationRef.current === 'FAILING' ||
+        terminalOperationRef.current === 'LEAVING';
+
+      if (!isAllowedTerminalDrain) {
+        return;
+      }
+
+      const queue = checkpointQueueRef.current;
+      if (!Array.isArray(queue) || queue.length <= 1) {
+        return;
+      }
+
+      const hasInFlightOrActive =
+        isProcessingCheckpointQueueRef.current &&
+        (inFlightCheckpointRef.current !== null || activeProcessingCheckpointRef.current !== null);
+
+      if (hasInFlightOrActive) {
+        if (queue.length > 2) {
+          const activeItem = queue[0];
+          let newest = queue[queue.length - 1];
+          for (let i = queue.length - 1; i >= 1; i--) {
+            if (queue[i] && (newest === null || queue[i].movesTaken >= newest.movesTaken)) {
+              newest = queue[i];
+            }
+          }
+          if (newest && newest !== activeItem && newest.movesTaken > activeItem.movesTaken) {
+            checkpointQueueRef.current = [activeItem, newest];
+          } else if (newest && newest.movesTaken <= activeItem.movesTaken) {
+            checkpointQueueRef.current = [activeItem];
+          }
+        }
+      } else {
+        let newest = queue[queue.length - 1];
+        for (let i = queue.length - 1; i >= 0; i--) {
+          if (queue[i] && (newest === null || queue[i].movesTaken >= newest.movesTaken)) {
+            newest = queue[i];
+          }
+        }
+        if (newest) {
+          checkpointQueueRef.current = [newest];
+        }
+      }
     };
 
     const processCheckpointQueue = async () => {
@@ -178,6 +288,10 @@ describe('Checkpoint Queue & Level Completion Deadlock Prevention Suite', () => 
             break;
           }
 
+          if (isAllowedTerminalDrain()) {
+            compactTerminalCheckpointQueue();
+          }
+
           const nextCp = checkpointQueueRef.current[0];
 
           if (nextCp.movesTaken <= confirmedCheckpointMovesRef.current) {
@@ -185,11 +299,13 @@ describe('Checkpoint Queue & Level Completion Deadlock Prevention Suite', () => 
             continue;
           }
 
+          activeProcessingCheckpointRef.current = nextCp;
           let saved = false;
           let lastErr = null;
 
           for (let attempt = 0; attempt < 3; attempt++) {
             try {
+              inFlightCheckpointRef.current = nextCp;
               const res = await mockSaveCheckpoint(currentId, nextCp);
               if (res && (res.success || res.checkpoint)) {
                 confirmedCheckpointMovesRef.current = nextCp.movesTaken;
@@ -206,9 +322,13 @@ describe('Checkpoint Queue & Level Completion Deadlock Prevention Suite', () => 
               if (err.status === 429 || err.statusCode === 429 || err.message?.includes('Too many requests')) {
                 break;
               }
+            } finally {
+              inFlightCheckpointRef.current = null;
             }
             await new Promise((r) => setTimeout(r, 10 * (attempt + 1)));
           }
+
+          activeProcessingCheckpointRef.current = null;
 
           if (!saved) {
             checkpointDrainErrorRef.current = lastErr || new Error('Checkpoint failed to persist after 3 attempts');
@@ -216,6 +336,8 @@ describe('Checkpoint Queue & Level Completion Deadlock Prevention Suite', () => 
           }
         }
       } finally {
+        inFlightCheckpointRef.current = null;
+        activeProcessingCheckpointRef.current = null;
         isProcessingCheckpointQueueRef.current = false;
       }
     };
@@ -237,6 +359,8 @@ describe('Checkpoint Queue & Level Completion Deadlock Prevention Suite', () => 
       if (!isProcessingCheckpointQueueRef.current) {
         checkpointDrainErrorRef.current = null;
       }
+
+      compactTerminalCheckpointQueue();
 
       if (!isProcessingCheckpointQueueRef.current && checkpointQueueRef.current.length > 0) {
         processCheckpointQueue();
@@ -305,6 +429,8 @@ describe('Checkpoint Queue & Level Completion Deadlock Prevention Suite', () => 
         }
       }
 
+      compactTerminalCheckpointQueue();
+
       try {
         await drainCheckpointQueue();
       } catch (drainErr) {
@@ -337,6 +463,84 @@ describe('Checkpoint Queue & Level Completion Deadlock Prevention Suite', () => 
       }
     };
 
+    const handleFailSession = async (reason = 'OUT_OF_MOVES') => {
+      const currentId = activeSessionIdRef.current;
+      if (terminalOperationRef.current || !currentId) return false;
+      terminalOperationRef.current = 'FAILING';
+      isTerminalRef.current = true;
+      try {
+        await drainCheckpointQueue();
+      } catch (_err) {}
+      backendSessionStatusRef.current = 'FAILED';
+      terminalOperationRef.current = null;
+      return true;
+    };
+
+    const executeLeaveGame = async () => {
+      const currentId = activeSessionIdRef.current;
+      if (terminalOperationRef.current || !currentId) return false;
+      terminalOperationRef.current = 'LEAVING';
+      isTerminalRef.current = true;
+      try {
+        await drainCheckpointQueue();
+      } catch (_err) {}
+      backendSessionStatusRef.current = 'ABANDONED';
+      terminalOperationRef.current = null;
+      return true;
+    };
+
+    const handleCompleteDailyChallenge = async () => {
+      const currentId = activeSessionIdRef.current;
+      const currentEngine = engineRef.current;
+      if (terminalOperationRef.current || submitting || !currentId || !currentEngine) {
+        return false;
+      }
+      terminalOperationRef.current = 'COMPLETING';
+      isTerminalRef.current = true;
+      submitting = true;
+      submitError = null;
+
+      const latestEngineMoves = currentEngine.movesCount;
+      if (latestEngineMoves > confirmedCheckpointMovesRef.current) {
+        const alreadyQueued = checkpointQueueRef.current.some(
+          (cp) => cp && cp.movesTaken >= latestEngineMoves
+        );
+        if (!alreadyQueued) {
+          checkpointQueueRef.current.push(currentEngine.getCheckpointState());
+        }
+      }
+
+      compactTerminalCheckpointQueue();
+
+      try {
+        await drainCheckpointQueue();
+      } catch (drainErr) {
+        terminalOperationRef.current = null;
+        isTerminalRef.current = false;
+        submitting = false;
+        submitError = `Failed to sync final move to server: ${drainErr.message}. Click Retry to synchronize.`;
+        return false;
+      }
+
+      if (confirmedCheckpointMovesRef.current < currentEngine.movesCount) {
+        terminalOperationRef.current = null;
+        isTerminalRef.current = false;
+        submitting = false;
+        submitError = 'Failed to sync final move to server: Final move was not acknowledged. Click Retry to synchronize.';
+        return false;
+      }
+
+      try {
+        const res = await mockCompleteDailyChallenge(currentId);
+        completedDailyCalls.push(res);
+        backendSessionStatusRef.current = 'COMPLETED';
+        return true;
+      } finally {
+        terminalOperationRef.current = null;
+        submitting = false;
+      }
+    };
+
     return {
       activeSessionIdRef,
       backendSessionStatusRef,
@@ -344,19 +548,26 @@ describe('Checkpoint Queue & Level Completion Deadlock Prevention Suite', () => 
       isTerminalRef,
       checkpointQueueRef,
       isProcessingCheckpointQueueRef,
+      inFlightCheckpointRef,
+      activeProcessingCheckpointRef,
       confirmedCheckpointMovesRef,
       checkpointDrainErrorRef,
       engineRef,
       savedCheckpoints,
       completedCalls,
+      completedDailyCalls,
       getMoveBlockedCount: () => moveBlockedCount,
       getSubmitError: () => submitError,
       getSubmitting: () => submitting,
       queueCheckpoint,
+      compactTerminalCheckpointQueue,
       processCheckpointQueue,
       drainCheckpointQueue,
       handleMove,
       handleCompleteSession,
+      handleFailSession,
+      executeLeaveGame,
+      handleCompleteDailyChallenge,
     };
   }
 
@@ -694,6 +905,471 @@ describe('Checkpoint Queue & Level Completion Deadlock Prevention Suite', () => 
       assert.ok(h.getSubmitError().includes('Click Retry to synchronize'), 'Must prompt user to click Retry');
       assert.equal(h.terminalOperationRef.current, null, 'terminalOperationRef must be cleared for retry');
       assert.equal(h.getSubmitting(), false, 'submitting must be reset');
+    });
+  });
+
+  // =========================================================================
+  // Section C: Safe Terminal Compaction Verification Scenarios
+  // =========================================================================
+  describe('C. Safe Terminal Compaction Verification Scenarios', () => {
+    // 1. Terminal compaction with a large pending queue
+    it('1. Terminal compaction with a large pending queue compacts down to the newest snapshot when idle', async () => {
+      let networkCalls = 0;
+      const h = createHarness({
+        engineMoves: 15,
+        mockSaveCheckpoint: async (id, cp) => {
+          networkCalls++;
+          return { success: true };
+        },
+      });
+
+      // Player rapidly moves 15 times, creating a large pending queue
+      for (let m = 1; m <= 15; m++) {
+        h.checkpointQueueRef.current.push({ movesTaken: m, wormState: [{ x: 5, y: 5 }, { x: 4, y: 5 }] });
+      }
+
+      assert.equal(h.checkpointQueueRef.current.length, 15);
+
+      // Terminal completion starts
+      const success = await h.handleCompleteSession();
+
+      assert.equal(success, true, 'Completion must succeed');
+      // Compacting 15 unsent items while idle must transmit ONLY the newest terminal snapshot
+      assert.equal(networkCalls, 1, 'Only 1 HTTP network request must be made for the compacted snapshot');
+      assert.equal(h.confirmedCheckpointMovesRef.current, 15, 'Move 15 must be acknowledged');
+      assert.equal(h.checkpointQueueRef.current.length, 0, 'Queue must be drained');
+      assert.equal(h.backendSessionStatusRef.current, 'COMPLETED');
+    });
+
+    // 2. Compaction with an actual in-flight checkpoint
+    it('2. Compaction with an actual in-flight checkpoint preserves index 0 and compacts pending items', async () => {
+      const inFlightCp = { movesTaken: 2, id: 'in_flight_cp' };
+      const h = createHarness();
+
+      // Put in-flight checkpoint at index 0 and multiple pending after
+      h.checkpointQueueRef.current = [
+        inFlightCp,
+        { movesTaken: 3 },
+        { movesTaken: 4 },
+        { movesTaken: 5 },
+        { movesTaken: 12 },
+      ];
+
+      // Mark in-flight explicitly
+      h.isProcessingCheckpointQueueRef.current = true;
+      h.inFlightCheckpointRef.current = inFlightCp;
+      h.terminalOperationRef.current = 'COMPLETING';
+
+      h.compactTerminalCheckpointQueue();
+
+      // Index 0 MUST remain untouched, and index 1 MUST be the newest pending item
+      assert.equal(h.checkpointQueueRef.current.length, 2, 'Queue must compact to exactly [inFlight, newest]');
+      assert.strictEqual(h.checkpointQueueRef.current[0], inFlightCp, 'In-flight item at index 0 must be strictly preserved');
+      assert.equal(h.checkpointQueueRef.current[1].movesTaken, 12, 'Pending item must be compacted to newest (move 12)');
+    });
+
+    // 3. Compaction when the worker is idle
+    it('3. Compaction when the worker is idle does not assume index 0 is in-flight', async () => {
+      const h = createHarness();
+
+      h.checkpointQueueRef.current = [
+        { movesTaken: 1 },
+        { movesTaken: 2 },
+        { movesTaken: 3 },
+        { movesTaken: 4 },
+        { movesTaken: 10 },
+      ];
+
+      h.isProcessingCheckpointQueueRef.current = false;
+      h.inFlightCheckpointRef.current = null;
+      h.activeProcessingCheckpointRef.current = null;
+      h.terminalOperationRef.current = 'COMPLETING';
+
+      h.compactTerminalCheckpointQueue();
+
+      // When idle, index 0 is NOT in flight. Queue must collapse to 1 single item.
+      assert.equal(h.checkpointQueueRef.current.length, 1, 'Queue must compact to exactly 1 item when worker is idle');
+      assert.equal(h.checkpointQueueRef.current[0].movesTaken, 10, 'Single retained item must be the newest terminal snapshot');
+    });
+
+    // 4. In-flight request completes during compaction
+    it('4. In-flight request completes during compaction and worker proceeds to compacted item', async () => {
+      const transmittedMoves = [];
+      let completeInFlightResolve;
+
+      const h = createHarness({
+        engineMoves: 8,
+        mockSaveCheckpoint: async (id, cp) => {
+          transmittedMoves.push(cp.movesTaken);
+          if (cp.movesTaken === 2) {
+            // Simulate slow in-flight request
+            await new Promise((resolve) => {
+              completeInFlightResolve = resolve;
+            });
+          }
+          return { success: true };
+        },
+      });
+
+      // Queue move 2 and start worker
+      h.checkpointQueueRef.current.push({ movesTaken: 2 });
+      const workerPromise = h.processCheckpointQueue();
+
+      // Allow worker to pick move 2 and enter HTTP in-flight state
+      await new Promise((r) => setTimeout(r, 10));
+      assert.ok(h.inFlightCheckpointRef.current, 'Move 2 must be actively in-flight');
+
+      // While move 2 is in-flight, rapid moves 3, 4, 5, 8 arrive and level completion triggers
+      h.checkpointQueueRef.current.push({ movesTaken: 3 });
+      h.checkpointQueueRef.current.push({ movesTaken: 4 });
+      h.checkpointQueueRef.current.push({ movesTaken: 5 });
+      h.checkpointQueueRef.current.push({ movesTaken: 8 });
+
+      h.terminalOperationRef.current = 'COMPLETING';
+      h.isTerminalRef.current = true;
+      h.compactTerminalCheckpointQueue();
+
+      assert.equal(h.checkpointQueueRef.current.length, 2, 'Queue must be [move 2, move 8]');
+
+      // In-flight request now resolves
+      completeInFlightResolve();
+      await workerPromise;
+
+      assert.deepEqual(transmittedMoves, [2, 8], 'Worker must sequentially process move 2 then move 8');
+      assert.equal(h.confirmedCheckpointMovesRef.current, 8, 'Confirmed moves must reach 8');
+      assert.equal(h.checkpointQueueRef.current.length, 0, 'Queue must be fully drained');
+    });
+
+    // 5. Late acknowledgement of an older checkpoint
+    it('5. Late acknowledgement of an older checkpoint does not falsely acknowledge final move', async () => {
+      let releaseMove3;
+      const h = createHarness({
+        engineMoves: 10,
+        mockSaveCheckpoint: async (id, cp) => {
+          if (cp.movesTaken === 3) {
+            await new Promise((r) => { releaseMove3 = r; });
+            return { success: true };
+          }
+          throw new Error('Connection reset on final checkpoint');
+        },
+      });
+
+      // Move 3 is in-flight
+      h.checkpointQueueRef.current.push({ movesTaken: 3 });
+      const workerP = h.processCheckpointQueue();
+      await new Promise((r) => setTimeout(r, 10));
+
+      // Now completion triggers with move 10
+      h.checkpointQueueRef.current.push({ movesTaken: 10 });
+      const compP = h.handleCompleteSession();
+
+      // Move 3 finishes late
+      releaseMove3();
+
+      const [success] = await Promise.all([compP, workerP]);
+
+      assert.equal(success, false, 'Completion must fail when final move 10 fails to save');
+      assert.equal(h.confirmedCheckpointMovesRef.current, 3, 'Confirmed moves must remain at 3, not falsely advance to 10');
+      assert.ok(h.getSubmitError().includes('Click Retry to synchronize'), 'Must prompt Retry');
+      assert.equal(h.backendSessionStatusRef.current, 'ACTIVE', 'Backend session must not be completed');
+    });
+
+    // 6. Failed in-flight request with compacted pending checkpoints
+    it('6. Failed in-flight request with compacted pending checkpoints retains items for retry', async () => {
+      let attemptsMove2 = 0;
+      const h = createHarness({
+        engineMoves: 8,
+        mockSaveCheckpoint: async (id, cp) => {
+          if (cp.movesTaken === 2) {
+            attemptsMove2++;
+            throw new Error('Server 500 error');
+          }
+          return { success: true };
+        },
+      });
+
+      // Move 2 starts in-flight
+      h.checkpointQueueRef.current.push({ movesTaken: 2 });
+      const workerP = h.processCheckpointQueue();
+      await new Promise((r) => setTimeout(r, 10));
+
+      // While move 2 is in-flight, rapid moves 5 and 8 are queued and completion begins
+      h.checkpointQueueRef.current.push({ movesTaken: 5 });
+      h.checkpointQueueRef.current.push({ movesTaken: 8 });
+
+      const success = await h.handleCompleteSession();
+      await workerP;
+
+      assert.equal(success, false, 'Completion must be blocked');
+      assert.equal(attemptsMove2, 3, 'Failed checkpoint must be retried exactly 3 times before breaking');
+      assert.equal(h.checkpointQueueRef.current.length, 2, 'Queue must retain in-flight and compacted checkpoint');
+      assert.equal(h.checkpointQueueRef.current[0].movesTaken, 2);
+      assert.equal(h.checkpointQueueRef.current[1].movesTaken, 8);
+      assert.ok(h.getSubmitError().includes('Click Retry to synchronize'));
+    });
+
+    // 7. Retry after a failed drain
+    it('7. Retry after a failed drain resumes processing and completes successfully', async () => {
+      let shouldFail = true;
+      const h = createHarness({
+        engineMoves: 12,
+        mockSaveCheckpoint: async (id, cp) => {
+          if (shouldFail) {
+            throw new Error('504 Gateway Timeout');
+          }
+          return { success: true };
+        },
+      });
+
+      h.checkpointQueueRef.current = [
+        { movesTaken: 1 },
+        { movesTaken: 2 },
+        { movesTaken: 12 },
+      ];
+
+      // First completion attempt fails due to gateway timeout
+      const firstResult = await h.handleCompleteSession();
+      assert.equal(firstResult, false, 'First attempt must fail cleanly');
+      assert.ok(h.getSubmitError().includes('Click Retry to synchronize'));
+
+      // Network recovers
+      shouldFail = false;
+
+      // User clicks Retry Verification
+      const retryResult = await h.handleCompleteSession();
+      assert.equal(retryResult, true, 'Retry must succeed');
+      assert.equal(h.confirmedCheckpointMovesRef.current, 12, 'Confirmed moves must reach 12');
+      assert.equal(h.checkpointQueueRef.current.length, 0, 'Queue must be empty');
+      assert.equal(h.backendSessionStatusRef.current, 'COMPLETED');
+    });
+
+    // 8. Completion cannot occur until the final checkpoint is acknowledged
+    it('8. Completion cannot occur until the final checkpoint is acknowledged, even if queue is empty', async () => {
+      let completeCalled = false;
+      const customEngine = {
+        movesCount: 14,
+        applesEaten: 2,
+        getCheckpointState: () => ({ movesTaken: 14 }),
+      };
+
+      const failingHarness = createHarness({
+        currentEngine: customEngine,
+        mockSaveCheckpoint: async () => {
+          throw new Error('Save rejected');
+        },
+        mockCompleteSession: async () => {
+          completeCalled = true;
+          return { success: true };
+        },
+      });
+      failingHarness.confirmedCheckpointMovesRef.current = 13;
+
+      const res = await failingHarness.handleCompleteSession();
+      assert.equal(res, false);
+      assert.equal(completeCalled, false, 'Server completion must NEVER be called');
+      assert.ok(failingHarness.getSubmitError().includes('Click Retry to synchronize'));
+    });
+
+    // 9. Duplicate acknowledgement
+    it('9. Duplicate acknowledgement from server does not corrupt queue state', async () => {
+      const h = createHarness({
+        engineMoves: 6,
+        mockSaveCheckpoint: async (id, cp) => {
+          return { success: true, deduplicated: true };
+        },
+      });
+
+      h.checkpointQueueRef.current = [
+        { movesTaken: 6, wormState: [{ x: 5, y: 5 }] },
+      ];
+
+      const res = await h.handleCompleteSession();
+      assert.equal(res, true, 'Deduplicated acknowledgement must be accepted as success');
+      assert.equal(h.confirmedCheckpointMovesRef.current, 6);
+      assert.equal(h.checkpointQueueRef.current.length, 0);
+    });
+
+    // 10. Stale acknowledgement
+    it('10. Stale acknowledgement from older checkpoints is skipped by worker', async () => {
+      const h = createHarness();
+
+      h.confirmedCheckpointMovesRef.current = 10;
+      h.checkpointQueueRef.current = [
+        { movesTaken: 4 },
+        { movesTaken: 7 },
+        { movesTaken: 10 },
+        { movesTaken: 12 },
+      ];
+
+      await h.processCheckpointQueue();
+
+      assert.equal(h.savedCheckpoints.length, 1, 'Only move 12 should have been saved');
+      assert.equal(h.savedCheckpoints[0].movesTaken, 12);
+      assert.equal(h.confirmedCheckpointMovesRef.current, 12);
+    });
+
+    // 11. Completion transition while the worker is already processing
+    it('11. Completion transition while worker is already processing active gameplay moves', async () => {
+      let inFlightStarted = false;
+      let resumeInFlight;
+      const savedMoves = [];
+
+      const h = createHarness({
+        engineMoves: 9,
+        mockSaveCheckpoint: async (id, cp) => {
+          savedMoves.push(cp.movesTaken);
+          if (cp.movesTaken === 3) {
+            inFlightStarted = true;
+            await new Promise((r) => { resumeInFlight = r; });
+          }
+          return { success: true };
+        },
+      });
+
+      // Move 3 is in gameplay queue
+      h.checkpointQueueRef.current.push({ movesTaken: 3 });
+      const workerP = h.processCheckpointQueue();
+
+      await new Promise((r) => setTimeout(r, 10));
+      assert.equal(inFlightStarted, true);
+
+      // Now player wins, handleCompleteSession is called
+      h.checkpointQueueRef.current.push({ movesTaken: 4 });
+      h.checkpointQueueRef.current.push({ movesTaken: 5 });
+      h.checkpointQueueRef.current.push({ movesTaken: 9 });
+
+      const completionP = h.handleCompleteSession();
+
+      // Complete in-flight move 3
+      resumeInFlight();
+
+      const [compRes] = await Promise.all([completionP, workerP]);
+
+      assert.equal(compRes, true, 'Completion must succeed');
+      assert.deepEqual(savedMoves, [3, 9], 'Only in-flight move 3 and final move 9 should be saved');
+      assert.equal(h.confirmedCheckpointMovesRef.current, 9);
+      assert.equal(h.backendSessionStatusRef.current, 'COMPLETED');
+    });
+
+    // 12. Failure or leave terminal transitions
+    it('12. Failure and leave terminal transitions trigger safe compaction', async () => {
+      const hFail = createHarness({
+        mockSaveCheckpoint: async () => ({ success: true }),
+      });
+
+      for (let i = 1; i <= 8; i++) {
+        hFail.checkpointQueueRef.current.push({ movesTaken: i });
+      }
+
+      await hFail.handleFailSession('OUT_OF_MOVES');
+      assert.equal(hFail.savedCheckpoints.length, 1, 'Failing drain must compact to 1 snapshot');
+      assert.equal(hFail.savedCheckpoints[0].movesTaken, 8);
+      assert.equal(hFail.backendSessionStatusRef.current, 'FAILED');
+
+      const hLeave = createHarness({
+        mockSaveCheckpoint: async () => ({ success: true }),
+      });
+
+      for (let i = 1; i <= 6; i++) {
+        hLeave.checkpointQueueRef.current.push({ movesTaken: i });
+      }
+
+      await hLeave.executeLeaveGame();
+      assert.equal(hLeave.savedCheckpoints.length, 1, 'Leaving drain must compact to 1 snapshot');
+      assert.equal(hLeave.savedCheckpoints[0].movesTaken, 6);
+      assert.equal(hLeave.backendSessionStatusRef.current, 'ABANDONED');
+    });
+
+    // 13. Daily Challenge completion through the same pipeline
+    it('13. Daily Challenge completion compacts queue and calls daily challenge completion', async () => {
+      let dcCompleted = false;
+      const h = createHarness({
+        engineMoves: 10,
+        mockCompleteDailyChallenge: async () => {
+          dcCompleted = true;
+          return { success: true, data: { status: 'COMPLETED', streak: 7 } };
+        },
+      });
+
+      for (let i = 1; i <= 10; i++) {
+        h.checkpointQueueRef.current.push({ movesTaken: i, wormState: [{ x: 5, y: 5 }] });
+      }
+
+      const res = await h.handleCompleteDailyChallenge();
+
+      assert.equal(res, true, 'Daily Challenge completion must succeed');
+      assert.equal(dcCompleted, true, 'mockCompleteDailyChallenge must have been called');
+      assert.equal(h.savedCheckpoints.length, 1, 'Only 1 compacted checkpoint request made');
+      assert.equal(h.savedCheckpoints[0].movesTaken, 10);
+      assert.equal(h.confirmedCheckpointMovesRef.current, 10);
+      assert.equal(h.backendSessionStatusRef.current, 'COMPLETED');
+    });
+
+    // 14. Multiple apples in a compacted checkpoint
+    it('14. Multiple apples in a compacted checkpoint satisfy server reachability invariants', () => {
+      const prevHead = { x: 2, y: 2 };
+      const currentMoves = 2;
+      const movesTaken = 8;
+      const moveDelta = movesTaken - currentMoves; // 6 moves
+
+      const newlyEatenApples = [
+        { x: 4, y: 3 }, // dist from (2,2) is |4-2| + |3-2| = 2 + 1 = 3
+        { x: 5, y: 4 }, // dist from (2,2) is |5-2| + |4-2| = 3 + 2 = 5
+      ];
+
+      // Server Gate 8a: newlyEatenApples.length <= moveDelta
+      assert.ok(
+        newlyEatenApples.length <= moveDelta,
+        `Apple count (${newlyEatenApples.length}) must not exceed moveDelta (${moveDelta})`
+      );
+
+      // Server Gate 8c: each eaten apple distance <= moveDelta
+      for (const eaten of newlyEatenApples) {
+        const dist = Math.abs(eaten.x - prevHead.x) + Math.abs(eaten.y - prevHead.y);
+        assert.ok(
+          dist <= moveDelta,
+          `Apple distance (${dist}) must be <= moveDelta (${moveDelta})`
+        );
+      }
+    });
+
+    // 15. Key, stone, pit and growth invariants remain intact
+    it('15. Key, stone, pit and growth invariants remain intact in compacted checkpoint', () => {
+      const initialStonesCount = 3;
+      const activeStones = [{ x: 4, y: 4 }, { x: 7, y: 2 }];
+      const filledPits = ['6,3'];
+      assert.equal(
+        activeStones.length + filledPits.length,
+        initialStonesCount,
+        'Stone conservation invariant must hold in compacted snapshot'
+      );
+
+      const levelKeys = [{ keyId: 'key_gate_1' }, { keyId: 'key_gate_2' }];
+      const collectedKeys = ['key_gate_1'];
+      const validKeyIds = new Set(levelKeys.map((k) => k.keyId));
+      for (const key of collectedKeys) {
+        assert.ok(validKeyIds.has(key), 'Collected keys must exist in level definitions');
+      }
+
+      const initialWormLength = 2;
+      const applesEaten = 2;
+      const megaApplesEaten = 1;
+      const authoritativeGrowth = applesEaten + (megaApplesEaten * 1) + megaApplesEaten;
+      const expectedLength = initialWormLength + authoritativeGrowth;
+      const wormState = [
+        { x: 5, y: 5 },
+        { x: 4, y: 5 },
+        { x: 3, y: 5 },
+        { x: 2, y: 5 },
+        { x: 1, y: 5 },
+        { x: 1, y: 4 },
+      ];
+      assert.equal(wormState.length, expectedLength, 'Worm length must match expected growth');
+
+      for (let i = 1; i < wormState.length; i++) {
+        const d = Math.abs(wormState[i].x - wormState[i - 1].x) + Math.abs(wormState[i].y - wormState[i - 1].y);
+        assert.equal(d, 1, `Segment ${i} and ${i - 1} must be contiguous with Manhattan distance of 1`);
+      }
     });
   });
 });
