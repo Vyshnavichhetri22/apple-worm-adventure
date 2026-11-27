@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import PropTypes from 'prop-types';
 import { WormGameEngine } from '../components/game/WormGameEngine';
 import GameCanvas from '../components/game/GameCanvas';
@@ -43,6 +43,7 @@ export default function GamePlayPage({
 
   const initialSessionId = sessionData?._id || sessionData?.id || sessionData?.session?._id;
   const activeSessionIdRef = useRef(initialSessionId);
+  const [activeSessionId, setActiveSessionId] = useState(initialSessionId);
 
   const engineRef = useRef(null);
   const sessionStartTimeRef = useRef(Date.now());
@@ -59,6 +60,7 @@ export default function GamePlayPage({
   const [recoveryError, setRecoveryError] = useState(null);
   const [uncertainNotice, setUncertainNotice] = useState(null);
   const [navigationError, setNavigationError] = useState(null);
+  const [isLeaving, setIsLeaving] = useState(false);
   const [isReconcilingModal, setIsReconcilingModal] = useState(false);
   const [modalFeedback, setModalFeedback] = useState(null);
   const [actionFeedback, setActionFeedback] = useState(null);
@@ -377,6 +379,7 @@ export default function GamePlayPage({
     lastInitializedSessionIdRef.current = incomingSessionId;
     lastInitializedLevelNumberRef.current = incomingLevelNumber;
     activeSessionIdRef.current = incomingSessionId;
+    setActiveSessionId(incomingSessionId);
 
     const newEngine = new WormGameEngine(levelData, sessionData);
 
@@ -487,6 +490,7 @@ export default function GamePlayPage({
       }
 
       terminalOperationRef.current = 'LEAVING';
+      setIsLeaving(true);
       setNavigationError(null);
       if (!queuedExitDestinationRef.current) {
         queuedExitDestinationRef.current = initialDestination;
@@ -502,6 +506,7 @@ export default function GamePlayPage({
 
         if (currentStatus === 'COMPLETED' || currentStatus === 'FAILED' || currentStatus === 'ABANDONED') {
           terminalOperationRef.current = null;
+          setIsLeaving(false);
           const target = queuedExitDestinationRef.current || initialDestination;
           queuedExitDestinationRef.current = null;
           onConfirmExit(target);
@@ -510,6 +515,7 @@ export default function GamePlayPage({
 
         if (!currentId) {
           terminalOperationRef.current = null;
+          setIsLeaving(false);
           const target = queuedExitDestinationRef.current || initialDestination;
           queuedExitDestinationRef.current = null;
           onConfirmExit(target);
@@ -544,6 +550,7 @@ export default function GamePlayPage({
 
         if (failSucceeded) {
           terminalOperationRef.current = null;
+          setIsLeaving(false);
           const target = queuedExitDestinationRef.current || initialDestination;
           queuedExitDestinationRef.current = null;
           onConfirmExit(target);
@@ -552,6 +559,7 @@ export default function GamePlayPage({
         }
       } catch (err) {
         terminalOperationRef.current = null;
+        setIsLeaving(false);
         const target = queuedExitDestinationRef.current || initialDestination;
         setNavigationError({
           message: err.message,
@@ -1158,7 +1166,9 @@ export default function GamePlayPage({
   };
 
   const handlersRef = useRef({ handleMove, handleUndo });
-  handlersRef.current = { handleMove, handleUndo };
+  useLayoutEffect(() => {
+    handlersRef.current = { handleMove, handleUndo };
+  });
 
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -1353,6 +1363,7 @@ export default function GamePlayPage({
       const now = Date.now();
 
       activeSessionIdRef.current = newSessionId;
+      setActiveSessionId(newSessionId);
       lastInitializedSessionIdRef.current = newSessionId;
       engineRef.current = freshEngine;
       sessionStartTimeRef.current = now;
@@ -1515,7 +1526,7 @@ export default function GamePlayPage({
             type="button"
             className="btn btn-secondary alert-btn"
             onClick={reconcileSessionWithBackend}
-            disabled={Boolean(terminalOperationRef.current)}
+            disabled={isReconcilingModal || isLeaving || submitting || isRestarting}
           >
             🔄 Reconcile Status with Server
           </button>
@@ -1577,8 +1588,8 @@ export default function GamePlayPage({
           onHint={handleHint}
           onBooster={handleBooster}
           onRestart={handleRestart}
-          canUndo={engine.movesCount > 0 && engine.status === 'PLAYING' && backendSessionStatusRef.current === 'ACTIVE' && !isTerminalRef.current}
-          disabled={engine.status !== 'PLAYING' || backendSessionStatusRef.current !== 'ACTIVE' || isTerminalRef.current || submitting || isRestarting}
+          canUndo={engine.movesCount > 0 && engine.status === 'PLAYING' && backendSessionStatus === 'ACTIVE' && !isLeaving && !submitting && !isRestarting}
+          disabled={engine.status !== 'PLAYING' || backendSessionStatus !== 'ACTIVE' || submitting || isRestarting || isLeaving}
           inventory={inventory}
           walletBalance={walletBalance}
           prices={ITEM_PRICES}
@@ -1612,7 +1623,7 @@ export default function GamePlayPage({
                 type="button"
                 className="btn btn-primary"
                 onClick={() => executeLeaveGame(queuedExitDestinationRef.current || navigationError.destination)}
-                disabled={isReconcilingModal || Boolean(terminalOperationRef.current)}
+                disabled={isReconcilingModal || isLeaving || submitting || isRestarting}
               >
                 🔄 Retry Abandonment
               </button>
@@ -1627,7 +1638,7 @@ export default function GamePlayPage({
                     setIsReconcilingModal(false);
                   }
                 }}
-                disabled={isReconcilingModal || Boolean(terminalOperationRef.current)}
+                disabled={isReconcilingModal || isLeaving || submitting || isRestarting}
               >
                 {isReconcilingModal ? 'Checking...' : '🔍 Reconcile Status'}
               </button>
@@ -1659,7 +1670,7 @@ export default function GamePlayPage({
               <div className="level-spec-grid">
                 <div className="spec-item">
                   <span className="spec-label">Session ID</span>
-                  <span className="spec-val" style={{ fontSize: '0.8rem', wordBreak: 'break-all' }}>{activeSessionIdRef.current}</span>
+                  <span className="spec-val" style={{ fontSize: '0.8rem', wordBreak: 'break-all' }}>{activeSessionId}</span>
                 </div>
                 <div className="spec-item">
                   <span className="spec-label">Backend Status</span>
@@ -1726,8 +1737,8 @@ export default function GamePlayPage({
           engine.status === 'FAILED' &&
           ['SELF_COLLISION', 'CRUSHED', 'HIT_SPIKE', 'FALLEN_OFF_GRID', 'OUT_OF_MOVES', 'TRAPPED'].includes(engine.failureReason) &&
           engine.movesCount > 0 &&
-          backendSessionStatusRef.current !== 'COMPLETED' &&
-          backendSessionStatusRef.current !== 'ABANDONED' &&
+          backendSessionStatus !== 'COMPLETED' &&
+          backendSessionStatus !== 'ABANDONED' &&
           !isRestarting &&
           !submitting
         }
@@ -1741,7 +1752,7 @@ export default function GamePlayPage({
       <RewardedAdModal
         isOpen={isAdModalOpen}
         placement={activeAdPlacement}
-        sessionId={activeSessionIdRef.current}
+        sessionId={activeSessionId}
         adsAvailable={isAdsAvailable}
         onClose={() => setIsAdModalOpen(false)}
         onRewardGranted={handleRewardGranted}

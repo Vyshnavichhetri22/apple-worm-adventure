@@ -1050,38 +1050,14 @@ export const gameSessionService = {
           if (reconciledProgress) {
             const totalStars = reconciledProgress.completedLevels.reduce((sum, r) => sum + (r.stars || 0), 0);
             const totalScore = reconciledProgress.completedLevels.reduce((sum, r) => sum + (r.highScore || 0), 0);
-            const totalGoldenApples = reconciledProgress.completedLevels.reduce(
-              (sum, r) => sum + (r.goldenApplesClaimed || 0),
-              0
-            );
-            const totalMegaApples = reconciledProgress.completedLevels.reduce(
-              (sum, r) => sum + (r.megaApplesClaimed || 0),
-              0
-            );
-            const totalTimeApples = reconciledProgress.completedLevels.reduce(
-              (sum, r) => sum + (r.timeApplesClaimed || 0),
-              0
-            );
-            const totalMysteryApples = reconciledProgress.completedLevels.reduce(
-              (sum, r) => sum + (r.mysteryApplesClaimed || 0),
-              0
-            );
             await PlayerProgress.findByIdAndUpdate(reconciledProgress._id, {
               $set: {
                 totalStars,
                 totalScore,
-                totalGoldenApplesEaten: totalGoldenApples,
-                totalMegaApplesEaten: totalMegaApples,
-                totalTimeApplesEaten: totalTimeApples,
-                totalMysteryApplesEaten: totalMysteryApples,
               },
             });
             reconciledProgress.totalStars = totalStars;
             reconciledProgress.totalScore = totalScore;
-            reconciledProgress.totalGoldenApplesEaten = totalGoldenApples;
-            reconciledProgress.totalMegaApplesEaten = totalMegaApples;
-            reconciledProgress.totalTimeApplesEaten = totalTimeApples;
-            reconciledProgress.totalMysteryApplesEaten = totalMysteryApples;
             progress = reconciledProgress;
 
             await User.findByIdAndUpdate(userId, {
@@ -1112,6 +1088,10 @@ export const gameSessionService = {
           // ignore duplicate sync error
         }
       }
+
+      // Authoritatively synchronize lifetime apples projection on completed-session duplicate recovery
+      await this.syncPlayerApples(userId);
+      await this.syncPlayerSpecialApples(userId);
 
       const wallet = await walletService.getOrCreateWallet(userId);
       return {
@@ -1662,13 +1642,6 @@ export const gameSessionService = {
       updatedProgress = await PlayerProgress.findOneAndUpdate(
         { userId },
         {
-          $inc: {
-            totalApplesEaten: authoritativeApplesEaten,
-            totalGoldenApplesEaten: authoritativeGoldenEaten,
-            totalMegaApplesEaten: authoritativeMegaEaten,
-            totalTimeApplesEaten: authoritativeTimeEaten,
-            totalMysteryApplesEaten: authoritativeMysteryEaten,
-          },
           $set: {
             lastPlayedAt: now,
           },
@@ -1678,6 +1651,16 @@ export const gameSessionService = {
 
       if (!updatedProgress) {
         updatedProgress = await this.getOrCreatePlayerProgress(userId);
+      }
+
+      const syncedDailyApples = await this.syncPlayerApples(userId);
+      const syncedDailySpecial = await this.syncPlayerSpecialApples(userId);
+      if (updatedProgress) {
+        updatedProgress.totalApplesEaten = syncedDailyApples;
+        updatedProgress.totalGoldenApplesEaten = syncedDailySpecial.golden;
+        updatedProgress.totalMegaApplesEaten = syncedDailySpecial.mega;
+        updatedProgress.totalTimeApplesEaten = syncedDailySpecial.time;
+        updatedProgress.totalMysteryApplesEaten = syncedDailySpecial.mystery;
       }
     } else {
       const nextLevel = Math.max(1, level.levelNumber + 1);
@@ -1775,40 +1758,26 @@ export const gameSessionService = {
       if (updatedProgress) {
         const totalStars = updatedProgress.completedLevels.reduce((sum, r) => sum + (r.stars || 0), 0);
         const totalScore = updatedProgress.completedLevels.reduce((sum, r) => sum + (r.highScore || 0), 0);
-        const totalGoldenApples = updatedProgress.completedLevels.reduce(
-          (sum, r) => sum + (r.goldenApplesClaimed || 0),
-          0
-        );
-        const totalMegaApples = updatedProgress.completedLevels.reduce(
-          (sum, r) => sum + (r.megaApplesClaimed || 0),
-          0
-        );
-        const totalTimeApples = updatedProgress.completedLevels.reduce(
-          (sum, r) => sum + (r.timeApplesClaimed || 0),
-          0
-        );
-        const totalMysteryApples = updatedProgress.completedLevels.reduce(
-          (sum, r) => sum + (r.mysteryApplesClaimed || 0),
-          0
-        );
         await PlayerProgress.findByIdAndUpdate(updatedProgress._id, {
           $set: {
             totalStars,
             totalScore,
-            totalGoldenApplesEaten: totalGoldenApples,
-            totalMegaApplesEaten: totalMegaApples,
-            totalTimeApplesEaten: totalTimeApples,
-            totalMysteryApplesEaten: totalMysteryApples,
           },
         });
         updatedProgress.totalStars = totalStars;
         updatedProgress.totalScore = totalScore;
-        updatedProgress.totalGoldenApplesEaten = totalGoldenApples;
-        updatedProgress.totalMegaApplesEaten = totalMegaApples;
-        updatedProgress.totalTimeApplesEaten = totalTimeApples;
-        updatedProgress.totalMysteryApplesEaten = totalMysteryApples;
       } else {
         updatedProgress = await this.getOrCreatePlayerProgress(userId);
+      }
+
+      const syncedCampaignApples = await this.syncPlayerApples(userId);
+      const syncedCampaignSpecial = await this.syncPlayerSpecialApples(userId);
+      if (updatedProgress) {
+        updatedProgress.totalApplesEaten = syncedCampaignApples;
+        updatedProgress.totalGoldenApplesEaten = syncedCampaignSpecial.golden;
+        updatedProgress.totalMegaApplesEaten = syncedCampaignSpecial.mega;
+        updatedProgress.totalTimeApplesEaten = syncedCampaignSpecial.time;
+        updatedProgress.totalMysteryApplesEaten = syncedCampaignSpecial.mystery;
       }
 
       await User.findByIdAndUpdate(userId, {
@@ -1967,6 +1936,170 @@ export const gameSessionService = {
 
   async getPlayerProgress(userId) {
     return this.getOrCreatePlayerProgress(userId);
+  },
+
+  /**
+   * Synchronizes PlayerProgress.totalApplesEaten using an authoritative
+   * aggregation projection of all completed GameSession documents for the user.
+   * Uses MongoDB $max to guarantee monotonic progression and protect against stale writes.
+   *
+   * @param {string|mongoose.Types.ObjectId} userId - The user ID
+   * @returns {Promise<number>} Authoritative lifetime apples count
+   */
+  async syncPlayerApples(userId) {
+    if (!userId) return 0;
+    const userObjectId = mongoose.Types.ObjectId.isValid(userId)
+      ? new mongoose.Types.ObjectId(userId)
+      : userId;
+
+    const aggregation = await GameSession.aggregate([
+      {
+        $match: {
+          userId: userObjectId,
+          status: 'COMPLETED',
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          totalApples: { $sum: '$applesCollected' },
+        },
+      },
+    ]);
+
+    const authoritativeTotal = aggregation[0]?.totalApples || 0;
+
+    let updatedProgress = await PlayerProgress.findOneAndUpdate(
+      { userId: userObjectId },
+      { $max: { totalApplesEaten: authoritativeTotal } },
+      { returnDocument: 'after' }
+    );
+
+    if (!updatedProgress) {
+      await this.getOrCreatePlayerProgress(userId);
+      updatedProgress = await PlayerProgress.findOneAndUpdate(
+        { userId: userObjectId },
+        { $max: { totalApplesEaten: authoritativeTotal } },
+        { returnDocument: 'after' }
+      );
+    }
+
+    return authoritativeTotal;
+  },
+
+  /**
+   * Synchronizes PlayerProgress special apple lifetime statistics
+   * (totalGoldenApplesEaten, totalMegaApplesEaten, totalTimeApplesEaten, totalMysteryApplesEaten)
+   * using an authoritative aggregation projection of all completed GameSession documents for the user.
+   * Uses MongoDB $max to guarantee monotonic progression, protect against stale concurrent writes,
+   * and preserve previously earned counts.
+   *
+   * @param {string|mongoose.Types.ObjectId} userId - The user ID
+   * @returns {Promise<{golden: number, mega: number, time: number, mystery: number}>} Authoritative special apple counts
+   */
+  async syncPlayerSpecialApples(userId) {
+    const defaultTotals = { golden: 0, mega: 0, time: 0, mystery: 0 };
+    if (!userId) return defaultTotals;
+    const userObjectId = mongoose.Types.ObjectId.isValid(userId)
+      ? new mongoose.Types.ObjectId(userId)
+      : userId;
+
+    const aggregation = await GameSession.aggregate([
+      {
+        $match: {
+          userId: userObjectId,
+          status: 'COMPLETED',
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          golden: {
+            $sum: {
+              $cond: [
+                { $gt: ['$goldenApplesCollected', 0] },
+                '$goldenApplesCollected',
+                { $ifNull: ['$rewardBreakdown.goldenApplesCount', 0] },
+              ],
+            },
+          },
+          mega: {
+            $sum: {
+              $cond: [
+                { $gt: ['$megaApplesCollected', 0] },
+                '$megaApplesCollected',
+                { $ifNull: ['$rewardBreakdown.megaApplesCount', 0] },
+              ],
+            },
+          },
+          time: {
+            $sum: {
+              $cond: [
+                { $gt: ['$timeApplesCollected', 0] },
+                '$timeApplesCollected',
+                { $ifNull: ['$rewardBreakdown.timeApplesCount', 0] },
+              ],
+            },
+          },
+          mystery: {
+            $sum: {
+              $cond: [
+                { $gt: ['$mysteryApplesCollected', 0] },
+                '$mysteryApplesCollected',
+                { $ifNull: ['$rewardBreakdown.mysteryApplesCount', 0] },
+              ],
+            },
+          },
+        },
+      },
+    ]);
+
+    const projectedTotals = {
+      golden: aggregation[0]?.golden || 0,
+      mega: aggregation[0]?.mega || 0,
+      time: aggregation[0]?.time || 0,
+      mystery: aggregation[0]?.mystery || 0,
+    };
+
+    let updatedProgress = await PlayerProgress.findOneAndUpdate(
+      { userId: userObjectId },
+      {
+        $max: {
+          totalGoldenApplesEaten: projectedTotals.golden,
+          totalMegaApplesEaten: projectedTotals.mega,
+          totalTimeApplesEaten: projectedTotals.time,
+          totalMysteryApplesEaten: projectedTotals.mystery,
+        },
+      },
+      { returnDocument: 'after' }
+    );
+
+    if (!updatedProgress) {
+      await this.getOrCreatePlayerProgress(userId);
+      updatedProgress = await PlayerProgress.findOneAndUpdate(
+        { userId: userObjectId },
+        {
+          $max: {
+            totalGoldenApplesEaten: projectedTotals.golden,
+            totalMegaApplesEaten: projectedTotals.mega,
+            totalTimeApplesEaten: projectedTotals.time,
+            totalMysteryApplesEaten: projectedTotals.mystery,
+          },
+        },
+        { returnDocument: 'after' }
+      );
+    }
+
+    if (updatedProgress) {
+      return {
+        golden: updatedProgress.totalGoldenApplesEaten,
+        mega: updatedProgress.totalMegaApplesEaten,
+        time: updatedProgress.totalTimeApplesEaten,
+        mystery: updatedProgress.totalMysteryApplesEaten,
+      };
+    }
+
+    return projectedTotals;
   },
 };
 

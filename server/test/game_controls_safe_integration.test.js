@@ -1933,7 +1933,7 @@ describe('Game Controls, Economy, Checkpoint & Authoritative Completion Safe Sui
     progress = await PlayerProgress.findOne({ userId: seqUser._id });
     rec = progress.completedLevels.find((r) => r.levelNumber === 996);
     assert.equal(rec.goldenApplesClaimed, 2);
-    assert.equal(progress.totalGoldenApplesEaten, 2);
+    assert.equal(progress.totalGoldenApplesEaten, 3, 'Lifetime totalGoldenApplesEaten reflects aggregate consumed across completed sessions (1 + 2 = 3)');
 
     // Stage 3: Replay level 996 collecting 1 golden apple again (lower count)
     const session3 = await gameSessionService.startSession(seqUser._id, 996);
