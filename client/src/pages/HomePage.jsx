@@ -42,6 +42,11 @@ export function HomePage({ onNavigate }) {
   const applesEaten = progress?.totalApplesEaten || 0;
   const coins = typeof balance === 'number' ? balance : (user?.coins || 0);
 
+  const goldenApplesEaten = progress?.totalGoldenApplesEaten || 0;
+  const megaApplesEaten = progress?.totalMegaApplesEaten || 0;
+  const timeApplesEaten = progress?.totalTimeApplesEaten || 0;
+  const mysteryApplesEaten = progress?.totalMysteryApplesEaten || 0;
+
   return (
     <div className="home-container">
       {/* Welcome Banner */}
@@ -130,6 +135,38 @@ export function HomePage({ onNavigate }) {
             <div className="stat-details">
               <span className="stat-value">{isLoadingProgress ? '...' : totalScore.toLocaleString()}</span>
               <span className="stat-label">Career High Score</span>
+            </div>
+          </div>
+
+          <div className="stat-card">
+            <div className="stat-icon-wrapper gold">🍏</div>
+            <div className="stat-details">
+              <span className="stat-value">{isLoadingProgress ? '...' : goldenApplesEaten.toLocaleString()}</span>
+              <span className="stat-label">Golden Apples Eaten</span>
+            </div>
+          </div>
+
+          <div className="stat-card">
+            <div className="stat-icon-wrapper magenta">🌟</div>
+            <div className="stat-details">
+              <span className="stat-value">{isLoadingProgress ? '...' : megaApplesEaten.toLocaleString()}</span>
+              <span className="stat-label">Mega Apples Eaten</span>
+            </div>
+          </div>
+
+          <div className="stat-card">
+            <div className="stat-icon-wrapper cyan">⏱️</div>
+            <div className="stat-details">
+              <span className="stat-value">{isLoadingProgress ? '...' : timeApplesEaten.toLocaleString()}</span>
+              <span className="stat-label">Time Apples Eaten</span>
+            </div>
+          </div>
+
+          <div className="stat-card">
+            <div className="stat-icon-wrapper purple">✨</div>
+            <div className="stat-details">
+              <span className="stat-value">{isLoadingProgress ? '...' : mysteryApplesEaten.toLocaleString()}</span>
+              <span className="stat-label">Mystery Apples Eaten</span>
             </div>
           </div>
         </div>
