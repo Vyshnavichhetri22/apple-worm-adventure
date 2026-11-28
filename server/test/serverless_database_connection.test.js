@@ -18,6 +18,7 @@ import { describe, it, beforeEach, afterEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import mongoose from 'mongoose';
+import express from 'express';
 
 import {
   connectDB,
@@ -348,6 +349,51 @@ describe('Serverless MongoDB Connection Lifecycle Suite', () => {
 
       const json = await res.json();
       assert.strictEqual(json.database.connected, true);
+    });
+
+    it('5.5. Express trusts first-hop reverse proxy and resolves client IP from X-Forwarded-For', async () => {
+      assert.strictEqual(app.get('trust proxy'), 1);
+
+      const originalJson = express.response.json;
+      const capturedRequests = [];
+
+      try {
+        express.response.json = function (body) {
+          if (this.req) {
+            capturedRequests.push({
+              ip: this.req.ip,
+              ips: this.req.ips,
+            });
+          }
+          return originalJson.call(this, body);
+        };
+
+        // 1. Single client IP in X-Forwarded-For header
+        const res1 = await fetch(`${baseUrl}/`, {
+          headers: {
+            'X-Forwarded-For': '203.0.113.195',
+          },
+        });
+        assert.strictEqual(res1.status, 200);
+        const json1 = await res1.json();
+        assert.strictEqual(json1.status, 'online');
+        assert.strictEqual(capturedRequests[0]?.ip, '203.0.113.195');
+
+        // 2. Multi-hop header with spoofed prefix (198.51.100.1, 203.0.113.195)
+        // With trust proxy: 1, Express trusts only the immediate proxy hop and extracts the rightmost client IP
+        const res2 = await fetch(`${baseUrl}/`, {
+          headers: {
+            'X-Forwarded-For': '198.51.100.1, 203.0.113.195',
+          },
+        });
+        assert.strictEqual(res2.status, 200);
+        const json2 = await res2.json();
+        assert.strictEqual(json2.status, 'online');
+        assert.strictEqual(capturedRequests[1]?.ip, '203.0.113.195');
+        assert.deepStrictEqual(capturedRequests[1]?.ips, ['203.0.113.195']);
+      } finally {
+        express.response.json = originalJson;
+      }
     });
   });
 });

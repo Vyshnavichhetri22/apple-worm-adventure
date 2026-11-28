@@ -18,6 +18,10 @@ import { getDatabaseStatus, connectDB } from './config/database.js';
 const app = express();
 const GAME_NAME = process.env.GAME_NAME || 'APPLE WORM ADVENTURE';
 
+// Enable trust proxy for reverse-proxy deployments (e.g. Vercel, Cloudflare, AWS ALB)
+// 1 = trust first upstream proxy hop so req.ip and express-rate-limit correctly resolve client IPs
+app.set('trust proxy', 1);
+
 // 1. Security & request processing middleware
 app.use(helmet());
 app.use(
